@@ -156,7 +156,7 @@ async fn test_optimize_async_partial_failures() {
         .optimize_async(10, |mut trial| {
             let count = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             async move {
-                if count % 2 == 0 {
+                if count.is_multiple_of(2) {
                     let x = trial.suggest_float("x", 0.0, 10.0)?;
                     Ok::<_, TpeError>((trial, x))
                 } else {
