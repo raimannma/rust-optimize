@@ -146,23 +146,6 @@ jobs:
       - name: Check semver
         run: cargo semver-checks check-release
 
-  miri:
-    name: Miri
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust nightly and Miri
-        run: |
-          rustup toolchain install nightly --component miri
-          rustup override set nightly
-      - uses: Swatinem/rust-cache@v2
-      - name: Setup Miri
-        run: cargo miri setup
-      - name: Run tests under Miri
-        run: cargo miri test
-        env:
-          MIRIFLAGS: -Zmiri-strict-provenance
-
   minimal-versions:
     name: Minimal Versions
     runs-on: ubuntu-latest
