@@ -8,7 +8,7 @@
 
 use optimizer::sampler::random::RandomSampler;
 use optimizer::sampler::tpe::TpeSampler;
-use optimizer::{Direction, Study, TpeError, Trial};
+use optimizer::{Direction, Error, Study, Trial};
 
 // =============================================================================
 // Test: optimize simple quadratic function with TPE, finds near-optimal
@@ -30,7 +30,7 @@ fn test_tpe_optimizes_quadratic_function() {
     study
         .optimize_with_sampler(50, |trial| {
             let x = trial.suggest_float("x", -10.0, 10.0)?;
-            Ok::<_, TpeError>((x - 3.0).powi(2))
+            Ok::<_, Error>((x - 3.0).powi(2))
         })
         .expect("optimization should succeed");
 
@@ -61,7 +61,7 @@ fn test_tpe_optimizes_multivariate_function() {
         .optimize_with_sampler(100, |trial| {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
             let y = trial.suggest_float("y", -5.0, 5.0)?;
-            Ok::<_, TpeError>(x * x + y * y)
+            Ok::<_, Error>(x * x + y * y)
         })
         .expect("optimization should succeed");
 
@@ -90,7 +90,7 @@ fn test_tpe_maximization() {
     study
         .optimize_with_sampler(50, |trial| {
             let x = trial.suggest_float("x", -10.0, 10.0)?;
-            Ok::<_, TpeError>(-(x - 2.0).powi(2) + 10.0)
+            Ok::<_, Error>(-(x - 2.0).powi(2) + 10.0)
         })
         .expect("optimization should succeed");
 
@@ -123,7 +123,7 @@ fn test_random_sampler_uniform_float_distribution() {
         .optimize(n_samples, |trial| {
             let x = trial.suggest_float("x", 0.0, 1.0)?;
             samples.push(x);
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -160,7 +160,7 @@ fn test_random_sampler_uniform_int_distribution() {
             let n = trial.suggest_int("n", 1, 10)?;
             assert!((1..=10).contains(&n), "sample {n} out of range [1, 10]");
             counts[(n - 1) as usize] += 1;
-            Ok::<_, TpeError>(n as f64)
+            Ok::<_, Error>(n as f64)
         })
         .unwrap();
 
@@ -192,7 +192,7 @@ fn test_random_sampler_uniform_categorical_distribution() {
             let choice = trial.suggest_categorical("cat", &choices)?;
             let idx = choices.iter().position(|&c| c == choice).unwrap();
             counts[idx] += 1;
-            Ok::<_, TpeError>(idx as f64)
+            Ok::<_, Error>(idx as f64)
         })
         .unwrap();
 
@@ -227,7 +227,7 @@ fn test_random_sampler_reproducibility() {
         .optimize_with_sampler(100, |trial| {
             let x = trial.suggest_float("x", 0.0, 100.0)?;
             values1.push(x);
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -235,7 +235,7 @@ fn test_random_sampler_reproducibility() {
         .optimize_with_sampler(100, |trial| {
             let x = trial.suggest_float("x", 0.0, 100.0)?;
             values2.push(x);
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -367,7 +367,7 @@ fn test_parameter_conflict_float_different_bounds() {
     trial.suggest_float("x", 0.0, 1.0).unwrap();
     let result = trial.suggest_float("x", 0.0, 2.0); // Different upper bound
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn test_parameter_conflict_float_vs_log() {
     trial.suggest_float("x", 0.1, 1.0).unwrap();
     let result = trial.suggest_float_log("x", 0.1, 1.0); // Same bounds but log scale
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn test_parameter_conflict_float_vs_step() {
     trial.suggest_float("x", 0.0, 1.0).unwrap();
     let result = trial.suggest_float_step("x", 0.0, 1.0, 0.1); // Same bounds but with step
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -397,7 +397,7 @@ fn test_parameter_conflict_int_different_bounds() {
     trial.suggest_int("n", 1, 10).unwrap();
     let result = trial.suggest_int("n", 1, 20); // Different upper bound
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -407,7 +407,7 @@ fn test_parameter_conflict_int_vs_log() {
     trial.suggest_int("n", 1, 100).unwrap();
     let result = trial.suggest_int_log("n", 1, 100); // Same bounds but log scale
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn test_parameter_conflict_categorical_different_n_choices() {
     trial.suggest_categorical("opt", &["a", "b", "c"]).unwrap();
     let result = trial.suggest_categorical("opt", &["x", "y"]); // Different number of choices
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -427,7 +427,7 @@ fn test_parameter_conflict_float_vs_int() {
     trial.suggest_float("x", 0.0, 10.0).unwrap();
     let result = trial.suggest_int("x", 0, 10); // Different type
 
-    assert!(matches!(result, Err(TpeError::ParameterConflict { .. })));
+    assert!(matches!(result, Err(Error::ParameterConflict { .. })));
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn test_parameter_conflict_returns_name() {
     let result = trial.suggest_float("my_param", 0.0, 2.0);
 
     match result {
-        Err(TpeError::ParameterConflict { name, .. }) => {
+        Err(Error::ParameterConflict { name, .. }) => {
             assert_eq!(name, "my_param");
         }
         _ => panic!("expected ParameterConflict error"),
@@ -456,7 +456,7 @@ fn test_empty_categorical_returns_error() {
 
     let result = trial.suggest_categorical("opt", empty);
 
-    assert!(matches!(result, Err(TpeError::EmptyChoices)));
+    assert!(matches!(result, Err(Error::EmptyChoices)));
 }
 
 #[test]
@@ -466,7 +466,7 @@ fn test_empty_categorical_vec_returns_error() {
 
     let result = trial.suggest_categorical("numbers", &empty);
 
-    assert!(matches!(result, Err(TpeError::EmptyChoices)));
+    assert!(matches!(result, Err(Error::EmptyChoices)));
 }
 
 // =============================================================================
@@ -480,7 +480,7 @@ fn test_study_basic_workflow() {
     study
         .optimize(10, |trial| {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
-            Ok::<_, TpeError>(x * x)
+            Ok::<_, Error>(x * x)
         })
         .expect("optimization should succeed");
 
@@ -517,7 +517,7 @@ fn test_no_completed_trials_error() {
     let study: Study<f64> = Study::new(Direction::Minimize);
 
     let result = study.best_trial();
-    assert!(matches!(result, Err(TpeError::NoCompletedTrials)));
+    assert!(matches!(result, Err(Error::NoCompletedTrials)));
 }
 
 #[test]
@@ -526,11 +526,11 @@ fn test_invalid_bounds_errors() {
 
     // low > high for float
     let result = trial.suggest_float("x", 10.0, 5.0);
-    assert!(matches!(result, Err(TpeError::InvalidBounds { .. })));
+    assert!(matches!(result, Err(Error::InvalidBounds { .. })));
 
     // low > high for int
     let result = trial.suggest_int("n", 100, 50);
-    assert!(matches!(result, Err(TpeError::InvalidBounds { .. })));
+    assert!(matches!(result, Err(Error::InvalidBounds { .. })));
 }
 
 #[test]
@@ -539,14 +539,14 @@ fn test_invalid_log_bounds_errors() {
 
     // low <= 0 for log float
     let result = trial.suggest_float_log("x", 0.0, 1.0);
-    assert!(matches!(result, Err(TpeError::InvalidLogBounds)));
+    assert!(matches!(result, Err(Error::InvalidLogBounds)));
 
     let result = trial.suggest_float_log("y", -1.0, 1.0);
-    assert!(matches!(result, Err(TpeError::InvalidLogBounds)));
+    assert!(matches!(result, Err(Error::InvalidLogBounds)));
 
     // low < 1 for log int
     let result = trial.suggest_int_log("n", 0, 100);
-    assert!(matches!(result, Err(TpeError::InvalidLogBounds)));
+    assert!(matches!(result, Err(Error::InvalidLogBounds)));
 }
 
 #[test]
@@ -555,14 +555,14 @@ fn test_invalid_step_errors() {
 
     // step <= 0 for float
     let result = trial.suggest_float_step("x", 0.0, 1.0, 0.0);
-    assert!(matches!(result, Err(TpeError::InvalidStep)));
+    assert!(matches!(result, Err(Error::InvalidStep)));
 
     let result = trial.suggest_float_step("y", 0.0, 1.0, -0.1);
-    assert!(matches!(result, Err(TpeError::InvalidStep)));
+    assert!(matches!(result, Err(Error::InvalidStep)));
 
     // step <= 0 for int
     let result = trial.suggest_int_step("n", 0, 100, 0);
-    assert!(matches!(result, Err(TpeError::InvalidStep)));
+    assert!(matches!(result, Err(Error::InvalidStep)));
 }
 
 #[test]
@@ -588,7 +588,7 @@ fn test_tpe_with_categorical_parameter() {
                 "cubic" => -((x - 1.0).powi(2)) + 10.0, // peak at x=1, max value 10
                 _ => unreachable!(),
             };
-            Ok::<_, TpeError>(value)
+            Ok::<_, Error>(value)
         })
         .expect("optimization should succeed");
 
@@ -615,7 +615,7 @@ fn test_tpe_with_integer_parameters() {
     study
         .optimize_with_sampler(30, |trial| {
             let n = trial.suggest_int("n", 1, 10)?;
-            Ok::<_, TpeError>(((n - 7) as f64).powi(2))
+            Ok::<_, Error>(((n - 7) as f64).powi(2))
         })
         .expect("optimization should succeed");
 
@@ -643,7 +643,7 @@ fn test_callback_early_stopping() {
             |trial| {
                 trials_run.set(trials_run.get() + 1);
                 let x = trial.suggest_float("x", 0.0, 10.0)?;
-                Ok::<_, TpeError>(x)
+                Ok::<_, Error>(x)
             },
             |_study, _trial| {
                 // Stop after 5 trials
@@ -666,7 +666,7 @@ fn test_study_trials_iteration() {
     study
         .optimize(5, |trial| {
             let x = trial.suggest_float("x", 0.0, 1.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -758,7 +758,7 @@ fn test_best_value() {
     study
         .optimize(10, |trial| {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -792,7 +792,7 @@ fn test_study_set_sampler() {
     study
         .optimize_with_sampler(10, |trial| {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
-            Ok::<_, TpeError>(x * x)
+            Ok::<_, Error>(x * x)
         })
         .expect("optimization should succeed with new sampler");
 
@@ -807,7 +807,7 @@ fn test_study_with_i32_value_type() {
     study
         .optimize(10, |trial| {
             let x = trial.suggest_int("x", -10, 10)?;
-            Ok::<_, TpeError>(x.abs() as i32)
+            Ok::<_, Error>(x.abs() as i32)
         })
         .expect("optimization should succeed");
 
@@ -824,7 +824,7 @@ fn test_optimize_all_trials_fail() {
     let result = study.optimize(5, |_trial| Err::<f64, &str>("always fails"));
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -842,7 +842,7 @@ fn test_optimize_with_callback_all_trials_fail() {
     );
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -854,7 +854,7 @@ fn test_optimize_with_sampler_all_trials_fail() {
     let result = study.optimize_with_sampler(5, |_trial| Err::<f64, &str>("always fails"));
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -872,7 +872,7 @@ fn test_optimize_with_callback_sampler_all_trials_fail() {
     );
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -902,7 +902,7 @@ fn test_tpe_sampler_builder_default_trait() {
     study
         .optimize_with_sampler(5, |trial| {
             let x = trial.suggest_float("x", 0.0, 1.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -917,7 +917,7 @@ fn test_tpe_sampler_default_trait() {
     study
         .optimize_with_sampler(5, |trial| {
             let x = trial.suggest_float("x", 0.0, 1.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -938,7 +938,7 @@ fn test_tpe_with_fixed_kde_bandwidth() {
     study
         .optimize_with_sampler(20, |trial| {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
-            Ok::<_, TpeError>(x * x)
+            Ok::<_, Error>(x * x)
         })
         .expect("optimization should succeed");
 
@@ -949,7 +949,7 @@ fn test_tpe_with_fixed_kde_bandwidth() {
 #[test]
 fn test_tpe_sampler_invalid_kde_bandwidth() {
     let result = TpeSampler::with_config(0.25, 10, 24, Some(-1.0), None);
-    assert!(matches!(result, Err(TpeError::InvalidBandwidth(_))));
+    assert!(matches!(result, Err(Error::InvalidBandwidth(_))));
 }
 
 #[test]
@@ -966,7 +966,7 @@ fn test_tpe_split_trials_with_two_trials() {
     study
         .optimize_with_sampler(5, |trial| {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .expect("optimization should succeed with small history");
 
@@ -987,7 +987,7 @@ fn test_tpe_with_log_scale_int() {
         .optimize_with_sampler(20, |trial| {
             let batch_size = trial.suggest_int_log("batch_size", 1, 1024)?;
             // Optimal around batch_size = 32
-            Ok::<_, TpeError>(((batch_size as f64).log2() - 5.0).powi(2))
+            Ok::<_, Error>(((batch_size as f64).log2() - 5.0).powi(2))
         })
         .expect("optimization should succeed");
 
@@ -1009,7 +1009,7 @@ fn test_tpe_with_step_distributions() {
         .optimize_with_sampler(20, |trial| {
             let x = trial.suggest_float_step("x", 0.0, 10.0, 0.5)?;
             let n = trial.suggest_int_step("n", 0, 100, 10)?;
-            Ok::<_, TpeError>((x - 5.0).powi(2) + ((n - 50) as f64).powi(2))
+            Ok::<_, Error>((x - 5.0).powi(2) + ((n - 50) as f64).powi(2))
         })
         .expect("optimization should succeed");
 
@@ -1088,7 +1088,7 @@ fn test_tpe_empty_good_or_bad_values_fallback() {
     study
         .optimize_with_sampler(10, |trial| {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 
@@ -1096,7 +1096,7 @@ fn test_tpe_empty_good_or_bad_values_fallback() {
     study
         .optimize_with_sampler(5, |trial| {
             let y = trial.suggest_float("y", 0.0, 10.0)?;
-            Ok::<_, TpeError>(y)
+            Ok::<_, Error>(y)
         })
         .unwrap();
 
@@ -1114,7 +1114,7 @@ fn test_callback_early_stopping_on_first_trial() {
             100,
             |trial| {
                 let x = trial.suggest_float("x", 0.0, 10.0)?;
-                Ok::<_, TpeError>(x)
+                Ok::<_, Error>(x)
             },
             |_study, _trial| {
                 // Stop immediately after first trial
@@ -1138,7 +1138,7 @@ fn test_callback_sampler_early_stopping() {
             100,
             |trial| {
                 let x = trial.suggest_float("x", 0.0, 10.0)?;
-                Ok::<_, TpeError>(x)
+                Ok::<_, Error>(x)
             },
             |study, _trial| {
                 if study.n_trials() >= 3 {
@@ -1174,7 +1174,7 @@ fn test_best_trial_with_nan_values() {
     study
         .optimize(5, |trial| {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>(x)
+            Ok::<_, Error>(x)
         })
         .unwrap();
 

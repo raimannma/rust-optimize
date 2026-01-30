@@ -1,10 +1,5 @@
-//! Error types for the optimizer library.
-
-use thiserror::Error;
-
-/// The error type for TPE operations.
-#[derive(Debug, Error)]
-pub enum TpeError {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     /// Returned when the lower bound is greater than the upper bound.
     #[error("invalid bounds: low ({low}) must be less than or equal to high ({high})")]
     InvalidBounds {
@@ -61,5 +56,4 @@ pub enum TpeError {
     TaskError(String),
 }
 
-/// A specialized Result type for TPE operations.
-pub type Result<T> = core::result::Result<T, TpeError>;
+pub type Result<T> = core::result::Result<T, Error>;

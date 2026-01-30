@@ -33,7 +33,7 @@
 //! study
 //!     .optimize_with_sampler(20, |trial| {
 //!         let x = trial.suggest_float("x", -10.0, 10.0)?;
-//!         Ok::<_, optimizer::TpeError>(x * x)
+//!         Ok::<_, optimizer::Error>(x * x)
 //!     })
 //!     .unwrap();
 //!
@@ -86,7 +86,7 @@
 //!         let optimizer = trial.suggest_categorical("optimizer", &["sgd", "adam", "rmsprop"])?;
 //!
 //!         // Return objective value
-//!         Ok::<_, optimizer::TpeError>(x * n as f64)
+//!         Ok::<_, optimizer::Error>(x * n as f64)
 //!     })
 //!     .unwrap();
 //! ```
@@ -140,7 +140,7 @@ mod study;
 mod trial;
 mod types;
 
-pub use error::{Result, TpeError};
+pub use error::{Error, Result};
 pub use param::ParamValue;
 pub use study::Study;
 pub use trial::Trial;

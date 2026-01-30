@@ -6,7 +6,7 @@
 
 use optimizer::sampler::random::RandomSampler;
 use optimizer::sampler::tpe::TpeSampler;
-use optimizer::{Direction, Study, TpeError};
+use optimizer::{Direction, Error, Study};
 
 #[tokio::test]
 async fn test_optimize_async_basic() {
@@ -16,7 +16,7 @@ async fn test_optimize_async_basic() {
     study
         .optimize_async(10, |mut trial| async move {
             let x = trial.suggest_float("x", -10.0, 10.0)?;
-            Ok::<_, TpeError>((trial, x * x))
+            Ok::<_, Error>((trial, x * x))
         })
         .await
         .expect("async optimization should succeed");
@@ -39,7 +39,7 @@ async fn test_optimize_async_with_sampler() {
     study
         .optimize_async_with_sampler(15, |mut trial| async move {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
-            Ok::<_, TpeError>((trial, x * x))
+            Ok::<_, Error>((trial, x * x))
         })
         .await
         .expect("async optimization with sampler should succeed");
@@ -57,7 +57,7 @@ async fn test_optimize_parallel() {
     study
         .optimize_parallel(20, 4, |mut trial| async move {
             let x = trial.suggest_float("x", -10.0, 10.0)?;
-            Ok::<_, TpeError>((trial, x * x))
+            Ok::<_, Error>((trial, x * x))
         })
         .await
         .expect("parallel optimization should succeed");
@@ -79,7 +79,7 @@ async fn test_optimize_parallel_with_sampler() {
         .optimize_parallel_with_sampler(15, 3, |mut trial| async move {
             let x = trial.suggest_float("x", -5.0, 5.0)?;
             let y = trial.suggest_float("y", -5.0, 5.0)?;
-            Ok::<_, TpeError>((trial, x * x + y * y))
+            Ok::<_, Error>((trial, x * x + y * y))
         })
         .await
         .expect("parallel optimization with sampler should succeed");
@@ -99,7 +99,7 @@ async fn test_optimize_async_all_failures() {
         .await;
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -116,7 +116,7 @@ async fn test_optimize_async_with_sampler_all_failures() {
         .await;
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -133,7 +133,7 @@ async fn test_optimize_parallel_all_failures() {
         .await;
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -150,7 +150,7 @@ async fn test_optimize_parallel_with_sampler_all_failures() {
         .await;
 
     assert!(
-        matches!(result, Err(TpeError::NoCompletedTrials)),
+        matches!(result, Err(Error::NoCompletedTrials)),
         "should return NoCompletedTrials when all trials fail"
     );
 }
@@ -168,9 +168,9 @@ async fn test_optimize_async_partial_failures() {
             async move {
                 if count.is_multiple_of(2) {
                     let x = trial.suggest_float("x", 0.0, 10.0)?;
-                    Ok::<_, TpeError>((trial, x))
+                    Ok::<_, Error>((trial, x))
                 } else {
-                    Err(TpeError::NoCompletedTrials) // Use as error type
+                    Err(Error::NoCompletedTrials) // Use as error type
                 }
             }
         })
@@ -190,7 +190,7 @@ async fn test_optimize_parallel_high_concurrency() {
     study
         .optimize_parallel(5, 10, |mut trial| async move {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>((trial, x))
+            Ok::<_, Error>((trial, x))
         })
         .await
         .expect("should handle high concurrency");
@@ -207,7 +207,7 @@ async fn test_optimize_parallel_single_concurrency() {
     study
         .optimize_parallel(10, 1, |mut trial| async move {
             let x = trial.suggest_float("x", 0.0, 10.0)?;
-            Ok::<_, TpeError>((trial, x))
+            Ok::<_, Error>((trial, x))
         })
         .await
         .expect("should work with single concurrency");

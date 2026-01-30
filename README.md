@@ -24,7 +24,7 @@ let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 study
     .optimize_with_sampler(20, |trial| {
         let x = trial.suggest_float("x", -10.0, 10.0)?;
-        Ok::<_, optimizer::TpeError>(x * x)
+        Ok::<_, optimizer::Error>(x * x)
     })
     .unwrap();
 

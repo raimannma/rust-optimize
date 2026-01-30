@@ -5,7 +5,7 @@
 
 use rand::Rng;
 
-use crate::error::{Result, TpeError};
+use crate::error::{Error, Result};
 
 /// A Gaussian kernel density estimator for continuous distributions.
 ///
@@ -45,10 +45,10 @@ impl KernelDensityEstimator {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::EmptySamples` if `samples` is empty.
+    /// Returns `Error::EmptySamples` if `samples` is empty.
     pub(crate) fn new(samples: Vec<f64>) -> Result<Self> {
         if samples.is_empty() {
-            return Err(TpeError::EmptySamples);
+            return Err(Error::EmptySamples);
         }
 
         let bandwidth = Self::scotts_rule(&samples);
@@ -61,14 +61,14 @@ impl KernelDensityEstimator {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::EmptySamples` if `samples` is empty.
-    /// Returns `TpeError::InvalidBandwidth` if `bandwidth` is not positive.
+    /// Returns `Error::EmptySamples` if `samples` is empty.
+    /// Returns `Error::InvalidBandwidth` if `bandwidth` is not positive.
     pub(crate) fn with_bandwidth(samples: Vec<f64>, bandwidth: f64) -> Result<Self> {
         if samples.is_empty() {
-            return Err(TpeError::EmptySamples);
+            return Err(Error::EmptySamples);
         }
         if bandwidth <= 0.0 {
-            return Err(TpeError::InvalidBandwidth(bandwidth));
+            return Err(Error::InvalidBandwidth(bandwidth));
         }
 
         Ok(Self { samples, bandwidth })
@@ -261,20 +261,20 @@ mod tests {
     fn test_kde_empty_samples() {
         let samples: Vec<f64> = vec![];
         let result = KernelDensityEstimator::new(samples);
-        assert!(matches!(result, Err(TpeError::EmptySamples)));
+        assert!(matches!(result, Err(Error::EmptySamples)));
     }
 
     #[test]
     fn test_kde_zero_bandwidth() {
         let samples = vec![1.0, 2.0, 3.0];
         let result = KernelDensityEstimator::with_bandwidth(samples, 0.0);
-        assert!(matches!(result, Err(TpeError::InvalidBandwidth(_))));
+        assert!(matches!(result, Err(Error::InvalidBandwidth(_))));
     }
 
     #[test]
     fn test_kde_negative_bandwidth() {
         let samples = vec![1.0, 2.0, 3.0];
         let result = KernelDensityEstimator::with_bandwidth(samples, -1.0);
-        assert!(matches!(result, Err(TpeError::InvalidBandwidth(_))));
+        assert!(matches!(result, Err(Error::InvalidBandwidth(_))));
     }
 }

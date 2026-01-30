@@ -9,7 +9,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::distribution::Distribution;
-use crate::error::{Result, TpeError};
+use crate::error::{Error, Result};
 use crate::kde::KernelDensityEstimator;
 use crate::param::ParamValue;
 use crate::sampler::{CompletedTrial, Sampler};
@@ -106,8 +106,8 @@ impl TpeSampler {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::InvalidGamma` if gamma is not in (0.0, 1.0).
-    /// Returns `TpeError::InvalidBandwidth` if `kde_bandwidth` is Some but not positive.
+    /// Returns `Error::InvalidGamma` if gamma is not in (0.0, 1.0).
+    /// Returns `Error::InvalidBandwidth` if `kde_bandwidth` is Some but not positive.
     pub fn with_config(
         gamma: f64,
         n_startup_trials: usize,
@@ -116,12 +116,12 @@ impl TpeSampler {
         seed: Option<u64>,
     ) -> Result<Self> {
         if gamma <= 0.0 || gamma >= 1.0 {
-            return Err(TpeError::InvalidGamma(gamma));
+            return Err(Error::InvalidGamma(gamma));
         }
         if let Some(bw) = kde_bandwidth
             && bw <= 0.0
         {
-            return Err(TpeError::InvalidBandwidth(bw));
+            return Err(Error::InvalidBandwidth(bw));
         }
 
         let rng = match seed {
@@ -484,7 +484,7 @@ impl TpeSamplerBuilder {
     /// # Note
     ///
     /// Validation happens at `build()` time. If gamma is not in (0.0, 1.0),
-    /// `build()` will return `Err(TpeError::InvalidGamma)`.
+    /// `build()` will return `Err(Error::InvalidGamma)`.
     #[must_use]
     pub fn gamma(mut self, gamma: f64) -> Self {
         self.gamma = gamma;
@@ -569,7 +569,7 @@ impl TpeSamplerBuilder {
     /// # Note
     ///
     /// Validation happens at `build()` time. If bandwidth is not positive,
-    /// `build()` will return `Err(TpeError::InvalidBandwidth)`.
+    /// `build()` will return `Err(Error::InvalidBandwidth)`.
     #[must_use]
     pub fn kde_bandwidth(mut self, bandwidth: f64) -> Self {
         self.kde_bandwidth = Some(bandwidth);
@@ -602,8 +602,8 @@ impl TpeSamplerBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::InvalidGamma` if gamma is not in (0.0, 1.0).
-    /// Returns `TpeError::InvalidBandwidth` if `kde_bandwidth` is Some but not positive.
+    /// Returns `Error::InvalidGamma` if gamma is not in (0.0, 1.0).
+    /// Returns `Error::InvalidBandwidth` if `kde_bandwidth` is Some but not positive.
     ///
     /// # Examples
     ///
@@ -817,13 +817,13 @@ mod tests {
     #[test]
     fn test_tpe_sampler_invalid_gamma_zero() {
         let result = TpeSampler::with_config(0.0, 10, 24, None, None);
-        assert!(matches!(result, Err(TpeError::InvalidGamma(_))));
+        assert!(matches!(result, Err(Error::InvalidGamma(_))));
     }
 
     #[test]
     fn test_tpe_sampler_invalid_gamma_one() {
         let result = TpeSampler::with_config(1.0, 10, 24, None, None);
-        assert!(matches!(result, Err(TpeError::InvalidGamma(_))));
+        assert!(matches!(result, Err(Error::InvalidGamma(_))));
     }
 
     #[test]
@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     fn test_tpe_sampler_builder_invalid_gamma() {
         let result = TpeSamplerBuilder::new().gamma(1.5).build();
-        assert!(matches!(result, Err(TpeError::InvalidGamma(_))));
+        assert!(matches!(result, Err(Error::InvalidGamma(_))));
     }
 
     #[test]

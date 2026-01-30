@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use crate::distribution::{
     CategoricalDistribution, Distribution, FloatDistribution, IntDistribution,
 };
-use crate::error::{Result, TpeError};
+use crate::error::{Error, Result};
 use crate::param::ParamValue;
 use crate::sampler::{CompletedTrial, Sampler};
 use crate::types::TrialState;
@@ -190,7 +190,7 @@ impl Trial {
     /// ```
     pub fn suggest_float(&mut self, name: impl Into<String>, low: f64, high: f64) -> Result<f64> {
         if low > high {
-            return Err(TpeError::InvalidBounds { low, high });
+            return Err(Error::InvalidBounds { low, high });
         }
 
         let name = name.into();
@@ -216,7 +216,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -226,7 +226,7 @@ impl Trial {
         // Sample using the sampler
         let dist = Distribution::Float(distribution);
         let ParamValue::Float(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
+            return Err(Error::Internal(
                 "Float distribution should return Float value",
             ));
         };
@@ -283,11 +283,11 @@ impl Trial {
         high: f64,
     ) -> Result<f64> {
         if low <= 0.0 {
-            return Err(TpeError::InvalidLogBounds);
+            return Err(Error::InvalidLogBounds);
         }
 
         if low > high {
-            return Err(TpeError::InvalidBounds { low, high });
+            return Err(Error::InvalidBounds { low, high });
         }
 
         let name = name.into();
@@ -313,7 +313,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -323,7 +323,7 @@ impl Trial {
         // Sample using the sampler (sampler handles log-scale transformation)
         let dist = Distribution::Float(distribution);
         let ParamValue::Float(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
+            return Err(Error::Internal(
                 "Float distribution should return Float value",
             ));
         };
@@ -380,11 +380,11 @@ impl Trial {
         step: f64,
     ) -> Result<f64> {
         if step <= 0.0 {
-            return Err(TpeError::InvalidStep);
+            return Err(Error::InvalidStep);
         }
 
         if low > high {
-            return Err(TpeError::InvalidBounds { low, high });
+            return Err(Error::InvalidBounds { low, high });
         }
 
         let name = name.into();
@@ -410,7 +410,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -420,7 +420,7 @@ impl Trial {
         // Sample using the sampler (sampler handles step-grid)
         let dist = Distribution::Float(distribution);
         let ParamValue::Float(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
+            return Err(Error::Internal(
                 "Float distribution should return Float value",
             ));
         };
@@ -466,7 +466,7 @@ impl Trial {
     #[allow(clippy::cast_precision_loss)]
     pub fn suggest_int(&mut self, name: impl Into<String>, low: i64, high: i64) -> Result<i64> {
         if low > high {
-            return Err(TpeError::InvalidBounds {
+            return Err(Error::InvalidBounds {
                 low: low as f64,
                 high: high as f64,
             });
@@ -495,7 +495,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -505,9 +505,7 @@ impl Trial {
         // Sample using the sampler
         let dist = Distribution::Int(distribution);
         let ParamValue::Int(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
-                "Int distribution should return Int value",
-            ));
+            return Err(Error::Internal("Int distribution should return Int value"));
         };
 
         // Store distribution and value
@@ -554,11 +552,11 @@ impl Trial {
     #[allow(clippy::cast_precision_loss)]
     pub fn suggest_int_log(&mut self, name: impl Into<String>, low: i64, high: i64) -> Result<i64> {
         if low < 1 {
-            return Err(TpeError::InvalidLogBounds);
+            return Err(Error::InvalidLogBounds);
         }
 
         if low > high {
-            return Err(TpeError::InvalidBounds {
+            return Err(Error::InvalidBounds {
                 low: low as f64,
                 high: high as f64,
             });
@@ -587,7 +585,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -597,9 +595,7 @@ impl Trial {
         // Sample using the sampler (sampler handles log-scale transformation)
         let dist = Distribution::Int(distribution);
         let ParamValue::Int(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
-                "Int distribution should return Int value",
-            ));
+            return Err(Error::Internal("Int distribution should return Int value"));
         };
 
         // Store distribution and value
@@ -659,11 +655,11 @@ impl Trial {
         step: i64,
     ) -> Result<i64> {
         if step <= 0 {
-            return Err(TpeError::InvalidStep);
+            return Err(Error::InvalidStep);
         }
 
         if low > high {
-            return Err(TpeError::InvalidBounds {
+            return Err(Error::InvalidBounds {
                 low: low as f64,
                 high: high as f64,
             });
@@ -692,7 +688,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different bounds or type"
                     .to_string(),
@@ -702,9 +698,7 @@ impl Trial {
         // Sample using the sampler (sampler handles step-grid)
         let dist = Distribution::Int(distribution);
         let ParamValue::Int(value) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
-                "Int distribution should return Int value",
-            ));
+            return Err(Error::Internal("Int distribution should return Int value"));
         };
 
         // Store distribution and value
@@ -760,7 +754,7 @@ impl Trial {
         choices: &[T],
     ) -> Result<T> {
         if choices.is_empty() {
-            return Err(TpeError::EmptyChoices);
+            return Err(Error::EmptyChoices);
         }
 
         let name = name.into();
@@ -779,7 +773,7 @@ impl Trial {
                 }
             }
             // Distribution exists but doesn't match
-            return Err(TpeError::ParameterConflict {
+            return Err(Error::ParameterConflict {
                 name,
                 reason: "parameter was previously sampled with different number of choices or type"
                     .to_string(),
@@ -789,7 +783,7 @@ impl Trial {
         // Sample using the sampler
         let dist = Distribution::Categorical(distribution);
         let ParamValue::Categorical(index) = self.sample_value(&dist) else {
-            return Err(TpeError::Internal(
+            return Err(Error::Internal(
                 "Categorical distribution should return Categorical value",
             ));
         };

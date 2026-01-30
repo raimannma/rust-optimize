@@ -275,7 +275,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if no trials have been completed.
+    /// Returns `Error::NoCompletedTrials` if no trials have been completed.
     ///
     /// # Examples
     ///
@@ -305,7 +305,7 @@ where
         let trials = self.completed_trials.read();
 
         if trials.is_empty() {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         let best = trials
@@ -325,7 +325,7 @@ where
                     }
                 }
             })
-            .ok_or(crate::TpeError::NoCompletedTrials)?;
+            .ok_or(crate::Error::NoCompletedTrials)?;
 
         Ok(best.clone())
     }
@@ -338,7 +338,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if no trials have been completed.
+    /// Returns `Error::NoCompletedTrials` if no trials have been completed.
     ///
     /// # Examples
     ///
@@ -387,7 +387,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
     ///
     /// # Examples
     ///
@@ -402,7 +402,7 @@ where
     /// study
     ///     .optimize(10, |trial| {
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
-    ///         Ok::<_, optimizer::TpeError>(x * x)
+    ///         Ok::<_, optimizer::Error>(x * x)
     ///     })
     ///     .unwrap();
     ///
@@ -431,7 +431,7 @@ where
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -455,7 +455,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
     ///
     /// # Examples
     ///
@@ -474,7 +474,7 @@ where
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
     ///         // Simulate async work (e.g., network request)
     ///         let value = x * x;
-    ///         Ok::<_, optimizer::TpeError>((trial, value))
+    ///         Ok::<_, optimizer::Error>((trial, value))
     ///     })
     ///     .await?;
     ///
@@ -511,7 +511,7 @@ where
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -536,8 +536,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
-    /// Returns `TpeError::TaskError` if the semaphore is closed or a spawned task panics.
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::TaskError` if the semaphore is closed or a spawned task panics.
     ///
     /// # Examples
     ///
@@ -556,7 +556,7 @@ where
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
     ///         // Async objective function (e.g., network request)
     ///         let value = x * x;
-    ///         Ok::<_, optimizer::TpeError>((trial, value))
+    ///         Ok::<_, optimizer::Error>((trial, value))
     ///     })
     ///     .await?;
     ///
@@ -590,7 +590,7 @@ where
                 .clone()
                 .acquire_owned()
                 .await
-                .map_err(|e| crate::TpeError::TaskError(e.to_string()))?;
+                .map_err(|e| crate::Error::TaskError(e.to_string()))?;
             let trial = self.create_trial();
             let objective = Arc::clone(&objective);
 
@@ -607,7 +607,7 @@ where
         for handle in handles {
             match handle
                 .await
-                .map_err(|e| crate::TpeError::TaskError(e.to_string()))?
+                .map_err(|e| crate::Error::TaskError(e.to_string()))?
             {
                 Ok((trial, value)) => {
                     self.complete_trial(trial, value);
@@ -620,7 +620,7 @@ where
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -643,9 +643,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if no trials completed successfully
+    /// Returns `Error::NoCompletedTrials` if no trials completed successfully
     /// before optimization stopped (either by completing all trials or early stopping).
-    /// Returns `TpeError::Internal` if a completed trial is not found after adding (internal invariant violation).
+    /// Returns `Error::Internal` if a completed trial is not found after adding (internal invariant violation).
     ///
     /// # Examples
     ///
@@ -664,7 +664,7 @@ where
     ///         100,
     ///         |trial| {
     ///             let x = trial.suggest_float("x", -10.0, 10.0)?;
-    ///             Ok::<_, optimizer::TpeError>(x * x)
+    ///             Ok::<_, optimizer::Error>(x * x)
     ///         },
     ///         |_study, completed_trial| {
     ///             // Stop early if we find a value less than 1.0
@@ -702,7 +702,7 @@ where
                     // Get the just-completed trial for the callback
                     let trials = self.completed_trials.read();
                     let Some(completed) = trials.last() else {
-                        return Err(crate::TpeError::Internal(
+                        return Err(crate::Error::Internal(
                             "completed trial not found after adding",
                         ));
                     };
@@ -725,7 +725,7 @@ where
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -783,7 +783,7 @@ impl Study<f64> {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
     ///
     /// # Examples
     ///
@@ -798,7 +798,7 @@ impl Study<f64> {
     /// study
     ///     .optimize_with_sampler(10, |trial| {
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
-    ///         Ok::<_, optimizer::TpeError>(x * x)
+    ///         Ok::<_, optimizer::Error>(x * x)
     ///     })
     ///     .unwrap();
     ///
@@ -829,7 +829,7 @@ impl Study<f64> {
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -851,8 +851,8 @@ impl Study<f64> {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if no trials completed successfully.
-    /// Returns `TpeError::Internal` if a completed trial is not found after adding (internal invariant violation).
+    /// Returns `Error::NoCompletedTrials` if no trials completed successfully.
+    /// Returns `Error::Internal` if a completed trial is not found after adding (internal invariant violation).
     ///
     /// # Examples
     ///
@@ -871,7 +871,7 @@ impl Study<f64> {
     ///         100,
     ///         |trial| {
     ///             let x = trial.suggest_float("x", -10.0, 10.0)?;
-    ///             Ok::<_, optimizer::TpeError>(x * x)
+    ///             Ok::<_, optimizer::Error>(x * x)
     ///         },
     ///         |study, _completed_trial| {
     ///             // Stop after finding 5 good trials
@@ -907,7 +907,7 @@ impl Study<f64> {
                     // Get the just-completed trial for the callback
                     let trials = self.completed_trials.read();
                     let Some(completed) = trials.last() else {
-                        return Err(crate::TpeError::Internal(
+                        return Err(crate::Error::Internal(
                             "completed trial not found after adding",
                         ));
                     };
@@ -930,7 +930,7 @@ impl Study<f64> {
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -953,7 +953,7 @@ impl Study<f64> {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
     ///
     /// # Examples
     ///
@@ -972,7 +972,7 @@ impl Study<f64> {
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
     ///         // Simulate async work (e.g., network request)
     ///         let value = x * x;
-    ///         Ok::<_, optimizer::TpeError>((trial, value))
+    ///         Ok::<_, optimizer::Error>((trial, value))
     ///     })
     ///     .await?;
     ///
@@ -1009,7 +1009,7 @@ impl Study<f64> {
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
@@ -1034,8 +1034,8 @@ impl Study<f64> {
     ///
     /// # Errors
     ///
-    /// Returns `TpeError::NoCompletedTrials` if all trials failed (no successful trials).
-    /// Returns `TpeError::TaskError` if the semaphore is closed or a spawned task panics.
+    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
+    /// Returns `Error::TaskError` if the semaphore is closed or a spawned task panics.
     ///
     /// # Examples
     ///
@@ -1054,7 +1054,7 @@ impl Study<f64> {
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
     ///         // Async objective function (e.g., network request)
     ///         let value = x * x;
-    ///         Ok::<_, optimizer::TpeError>((trial, value))
+    ///         Ok::<_, optimizer::Error>((trial, value))
     ///     })
     ///     .await?;
     ///
@@ -1087,7 +1087,7 @@ impl Study<f64> {
                 .clone()
                 .acquire_owned()
                 .await
-                .map_err(|e| crate::TpeError::TaskError(e.to_string()))?;
+                .map_err(|e| crate::Error::TaskError(e.to_string()))?;
             let trial = self.create_trial_with_sampler();
             let objective = Arc::clone(&objective);
 
@@ -1104,7 +1104,7 @@ impl Study<f64> {
         for handle in handles {
             match handle
                 .await
-                .map_err(|e| crate::TpeError::TaskError(e.to_string()))?
+                .map_err(|e| crate::Error::TaskError(e.to_string()))?
             {
                 Ok((trial, value)) => {
                     self.complete_trial(trial, value);
@@ -1117,7 +1117,7 @@ impl Study<f64> {
 
         // Return error if no trials succeeded
         if self.n_trials() == 0 {
-            return Err(crate::TpeError::NoCompletedTrials);
+            return Err(crate::Error::NoCompletedTrials);
         }
 
         Ok(())
