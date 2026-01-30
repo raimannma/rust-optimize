@@ -1043,7 +1043,7 @@ impl Study<f64> {
     ///         let x = trial.suggest_float("x", -10.0, 10.0)?;
     ///         // Async objective function (e.g., network request)
     ///         let value = x * x;
-    ///         Ok::<_, optimize::TpeError>((trial, value))
+    ///         Ok::<_, optimizer::TpeError>((trial, value))
     ///     })
     ///     .await?;
     ///
