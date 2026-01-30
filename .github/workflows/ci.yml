@@ -195,6 +195,27 @@ jobs:
       - name: Run tests
         run: cargo test --all-features
 
+  cross-targets:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - i686-unknown-linux-gnu
+          - powerpc64le-unknown-linux-gnu
+          - s390x-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: |
+          rustup override set stable
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Check compilation
+        run: cargo check --all-features --target ${{ matrix.target }}
 
   typos:
     name: Typos
@@ -228,6 +249,7 @@ jobs:
       - semver
       - minimal-versions
       - cross-platform
+      - cross-targets
       - typos
     steps:
       - uses: actions/checkout@v6
