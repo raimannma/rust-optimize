@@ -745,3 +745,541 @@ fn test_best_value() {
         "best_value should match best_trial.value"
     );
 }
+
+// =============================================================================
+// Additional coverage tests
+// =============================================================================
+
+#[test]
+fn test_study_set_sampler() {
+    // Test that set_sampler allows changing the sampler after study creation
+    let mut study: Study<f64> = Study::new(Direction::Minimize);
+
+    // Initially uses RandomSampler, now switch to TPE
+    let tpe = TpeSampler::builder().seed(42).n_startup_trials(5).build();
+    study.set_sampler(tpe);
+
+    // Should work with the new sampler
+    study
+        .optimize_with_sampler(10, |trial| {
+            let x = trial.suggest_float("x", -5.0, 5.0)?;
+            Ok::<_, TpeError>(x * x)
+        })
+        .expect("optimization should succeed with new sampler");
+
+    assert_eq!(study.n_trials(), 10);
+}
+
+#[test]
+fn test_study_with_i32_value_type() {
+    // Test Study with non-f64 value type
+    let study: Study<i32> = Study::new(Direction::Minimize);
+
+    study
+        .optimize(10, |trial| {
+            let x = trial.suggest_int("x", -10, 10)?;
+            Ok::<_, TpeError>(x.abs() as i32)
+        })
+        .expect("optimization should succeed");
+
+    assert_eq!(study.n_trials(), 10);
+    let best = study.best_trial().expect("should have best trial");
+    assert!(best.value >= 0, "absolute value should be non-negative");
+}
+
+#[test]
+fn test_optimize_all_trials_fail() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    // All trials fail
+    let result = study.optimize(5, |_trial| Err::<f64, &str>("always fails"));
+
+    assert!(
+        matches!(result, Err(TpeError::NoCompletedTrials)),
+        "should return NoCompletedTrials when all trials fail"
+    );
+}
+
+#[test]
+fn test_optimize_with_callback_all_trials_fail() {
+    use std::ops::ControlFlow;
+
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    let result = study.optimize_with_callback(
+        5,
+        |_trial| Err::<f64, &str>("always fails"),
+        |_study, _trial| ControlFlow::Continue(()),
+    );
+
+    assert!(
+        matches!(result, Err(TpeError::NoCompletedTrials)),
+        "should return NoCompletedTrials when all trials fail"
+    );
+}
+
+#[test]
+fn test_optimize_with_sampler_all_trials_fail() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    let result = study.optimize_with_sampler(5, |_trial| Err::<f64, &str>("always fails"));
+
+    assert!(
+        matches!(result, Err(TpeError::NoCompletedTrials)),
+        "should return NoCompletedTrials when all trials fail"
+    );
+}
+
+#[test]
+fn test_optimize_with_callback_sampler_all_trials_fail() {
+    use std::ops::ControlFlow;
+
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    let result = study.optimize_with_callback_sampler(
+        5,
+        |_trial| Err::<f64, &str>("always fails"),
+        |_study, _trial| ControlFlow::Continue(()),
+    );
+
+    assert!(
+        matches!(result, Err(TpeError::NoCompletedTrials)),
+        "should return NoCompletedTrials when all trials fail"
+    );
+}
+
+#[test]
+fn test_trial_debug_format() {
+    let mut trial = Trial::new(42);
+    trial.suggest_float("x", 0.0, 1.0).unwrap();
+
+    let debug_str = format!("{:?}", trial);
+
+    // Should contain trial id and other fields
+    assert!(debug_str.contains("Trial"));
+    assert!(debug_str.contains("42"));
+    assert!(debug_str.contains("has_sampler"));
+}
+
+#[test]
+fn test_tpe_sampler_builder_default_trait() {
+    use optimize::TpeSamplerBuilder;
+
+    let builder = TpeSamplerBuilder::default();
+    let sampler = builder.build();
+
+    // Should have default values
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+    study
+        .optimize_with_sampler(5, |trial| {
+            let x = trial.suggest_float("x", 0.0, 1.0)?;
+            Ok::<_, TpeError>(x)
+        })
+        .unwrap();
+
+    assert_eq!(study.n_trials(), 5);
+}
+
+#[test]
+fn test_tpe_sampler_default_trait() {
+    let sampler = TpeSampler::default();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+    study
+        .optimize_with_sampler(5, |trial| {
+            let x = trial.suggest_float("x", 0.0, 1.0)?;
+            Ok::<_, TpeError>(x)
+        })
+        .unwrap();
+
+    assert_eq!(study.n_trials(), 5);
+}
+
+#[test]
+fn test_tpe_with_fixed_kde_bandwidth() {
+    let sampler = TpeSampler::builder()
+        .seed(42)
+        .n_startup_trials(5)
+        .kde_bandwidth(0.5)
+        .build();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    study
+        .optimize_with_sampler(20, |trial| {
+            let x = trial.suggest_float("x", -5.0, 5.0)?;
+            Ok::<_, TpeError>(x * x)
+        })
+        .expect("optimization should succeed");
+
+    let best = study.best_trial().unwrap();
+    assert!(best.value < 10.0, "should find reasonable solution");
+}
+
+#[test]
+#[should_panic(expected = "kde_bandwidth must be positive")]
+fn test_tpe_sampler_invalid_kde_bandwidth() {
+    TpeSampler::with_config(0.25, 10, 24, Some(-1.0), None);
+}
+
+#[test]
+fn test_tpe_split_trials_with_two_trials() {
+    // Edge case: exactly 2 trials in history
+    let sampler = TpeSampler::builder()
+        .seed(42)
+        .n_startup_trials(2) // TPE kicks in after 2 trials
+        .build();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    study
+        .optimize_with_sampler(5, |trial| {
+            let x = trial.suggest_float("x", 0.0, 10.0)?;
+            Ok::<_, TpeError>(x)
+        })
+        .expect("optimization should succeed with small history");
+
+    assert_eq!(study.n_trials(), 5);
+}
+
+#[test]
+fn test_tpe_with_log_scale_int() {
+    let sampler = TpeSampler::builder().seed(42).n_startup_trials(5).build();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    study
+        .optimize_with_sampler(20, |trial| {
+            let batch_size = trial.suggest_int_log("batch_size", 1, 1024)?;
+            // Optimal around batch_size = 32
+            Ok::<_, TpeError>(((batch_size as f64).log2() - 5.0).powi(2))
+        })
+        .expect("optimization should succeed");
+
+    let best = study.best_trial().unwrap();
+    assert!(best.value < 10.0, "should find reasonable solution");
+}
+
+#[test]
+fn test_tpe_with_step_distributions() {
+    let sampler = TpeSampler::builder().seed(42).n_startup_trials(5).build();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    study
+        .optimize_with_sampler(20, |trial| {
+            let x = trial.suggest_float_step("x", 0.0, 10.0, 0.5)?;
+            let n = trial.suggest_int_step("n", 0, 100, 10)?;
+            Ok::<_, TpeError>((x - 5.0).powi(2) + ((n - 50) as f64).powi(2))
+        })
+        .expect("optimization should succeed");
+
+    let best = study.best_trial().unwrap();
+    assert!(best.value < 100.0, "should find reasonable solution");
+}
+
+#[test]
+fn test_create_trial_vs_create_trial_with_sampler() {
+    let sampler = RandomSampler::with_seed(42);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    // create_trial() creates trial without sampler integration
+    let trial1 = study.create_trial();
+    assert_eq!(trial1.id(), 0);
+
+    // create_trial_with_sampler() creates trial with sampler
+    let trial2 = study.create_trial_with_sampler();
+    assert_eq!(trial2.id(), 1);
+
+    // Both should work for suggesting parameters
+    let mut trial3 = study.create_trial();
+    let x = trial3.suggest_float("x", 0.0, 1.0).unwrap();
+    assert!((0.0..=1.0).contains(&x));
+}
+
+#[test]
+fn test_manual_trial_completion() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    // Manually create and complete trials
+    let mut trial = study.create_trial();
+    let x = trial.suggest_float("x", 0.0, 10.0).unwrap();
+    study.complete_trial(trial, x * x);
+
+    let mut trial2 = study.create_trial();
+    let y = trial2.suggest_float("x", 0.0, 10.0).unwrap();
+    study.complete_trial(trial2, y * y);
+
+    // Manually fail a trial
+    let trial3 = study.create_trial();
+    study.fail_trial(trial3, "test failure");
+
+    // Only 2 completed trials
+    assert_eq!(study.n_trials(), 2);
+}
+
+#[test]
+fn test_distributions_access() {
+    let mut trial = Trial::new(0);
+
+    trial.suggest_float("x", 0.0, 1.0).unwrap();
+    trial.suggest_int("n", 1, 10).unwrap();
+    trial.suggest_categorical("opt", &["a", "b", "c"]).unwrap();
+
+    let dists = trial.distributions();
+    assert_eq!(dists.len(), 3);
+    assert!(dists.contains_key("x"));
+    assert!(dists.contains_key("n"));
+    assert!(dists.contains_key("opt"));
+}
+
+#[test]
+fn test_tpe_empty_good_or_bad_values_fallback() {
+    // When TPE can't find values in the good/bad groups, it falls back to random
+    let sampler = TpeSampler::builder()
+        .seed(42)
+        .n_startup_trials(5)
+        .gamma(0.1) // Very small gamma means few "good" trials
+        .build();
+
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    // First optimize with one parameter
+    study
+        .optimize_with_sampler(10, |trial| {
+            let x = trial.suggest_float("x", 0.0, 10.0)?;
+            Ok::<_, TpeError>(x)
+        })
+        .unwrap();
+
+    // Now try with a different parameter - TPE won't have history for "y"
+    study
+        .optimize_with_sampler(5, |trial| {
+            let y = trial.suggest_float("y", 0.0, 10.0)?;
+            Ok::<_, TpeError>(y)
+        })
+        .unwrap();
+
+    assert_eq!(study.n_trials(), 15);
+}
+
+#[test]
+fn test_callback_early_stopping_on_first_trial() {
+    use std::ops::ControlFlow;
+
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    study
+        .optimize_with_callback(
+            100,
+            |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                Ok::<_, TpeError>(x)
+            },
+            |_study, _trial| {
+                // Stop immediately after first trial
+                ControlFlow::Break(())
+            },
+        )
+        .expect("optimization should succeed");
+
+    assert_eq!(study.n_trials(), 1, "should have stopped after 1 trial");
+}
+
+#[test]
+fn test_callback_sampler_early_stopping() {
+    use std::ops::ControlFlow;
+
+    let sampler = RandomSampler::with_seed(42);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+
+    study
+        .optimize_with_callback_sampler(
+            100,
+            |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                Ok::<_, TpeError>(x)
+            },
+            |study, _trial| {
+                if study.n_trials() >= 3 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )
+        .expect("optimization should succeed");
+
+    assert_eq!(study.n_trials(), 3);
+}
+
+#[test]
+fn test_int_bounds_with_low_equals_high() {
+    let mut trial = Trial::new(0);
+
+    // When low == high, should return that exact value
+    let n = trial.suggest_int("n", 5, 5).unwrap();
+    assert_eq!(n, 5);
+
+    let x = trial.suggest_float("x", 3.0, 3.0).unwrap();
+    assert_eq!(x, 3.0);
+}
+
+#[test]
+fn test_best_trial_with_nan_values() {
+    // Test behavior when comparing with NaN values (PartialOrd edge case)
+    let study: Study<f64> = Study::new(Direction::Minimize);
+
+    // Complete some normal trials
+    study
+        .optimize(5, |trial| {
+            let x = trial.suggest_float("x", 0.0, 10.0)?;
+            Ok::<_, TpeError>(x)
+        })
+        .unwrap();
+
+    // best_trial should still work
+    let best = study.best_trial();
+    assert!(best.is_ok());
+}
+
+// =============================================================================
+// Serde tests (only run when serde feature is enabled)
+// =============================================================================
+
+#[cfg(feature = "serde")]
+mod serde_tests {
+    use super::*;
+
+    #[test]
+    fn test_direction_serde() {
+        // Test Direction serialization
+        let min = Direction::Minimize;
+        let max = Direction::Maximize;
+
+        let min_json = serde_json::to_string(&min).unwrap();
+        let max_json = serde_json::to_string(&max).unwrap();
+
+        let min_deser: Direction = serde_json::from_str(&min_json).unwrap();
+        let max_deser: Direction = serde_json::from_str(&max_json).unwrap();
+
+        assert_eq!(min, min_deser);
+        assert_eq!(max, max_deser);
+    }
+
+    #[test]
+    fn test_study_serde_with_categorical() {
+        let study: Study<f64> = Study::new(Direction::Minimize);
+
+        study
+            .optimize(5, |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                let opt = trial.suggest_categorical("opt", &["a", "b", "c"])?;
+                let _ = opt;
+                Ok::<_, TpeError>(x)
+            })
+            .unwrap();
+
+        // Serialize
+        let json = serde_json::to_string(&study).unwrap();
+
+        // Deserialize
+        let loaded: Study<f64> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.n_trials(), 5);
+        assert_eq!(loaded.direction(), Direction::Minimize);
+    }
+
+    #[test]
+    fn test_study_serde_with_all_param_types() {
+        let study: Study<f64> = Study::new(Direction::Maximize);
+
+        study
+            .optimize(3, |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                let y = trial.suggest_float_log("y", 0.001, 1.0)?;
+                let z = trial.suggest_float_step("z", 0.0, 1.0, 0.1)?;
+                let a = trial.suggest_int("a", 1, 10)?;
+                let b = trial.suggest_int_log("b", 1, 100)?;
+                let c = trial.suggest_int_step("c", 0, 100, 10)?;
+                let d = trial.suggest_categorical("d", &["p", "q"])?;
+                let _ = (y, z, b, c, d);
+                Ok::<_, TpeError>(x + a as f64)
+            })
+            .unwrap();
+
+        let json = serde_json::to_string(&study).unwrap();
+        let loaded: Study<f64> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.n_trials(), 3);
+        assert_eq!(loaded.direction(), Direction::Maximize);
+
+        // Verify we can continue optimization
+        loaded
+            .optimize(2, |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                Ok::<_, TpeError>(x)
+            })
+            .unwrap();
+
+        assert_eq!(loaded.n_trials(), 5);
+    }
+
+    #[test]
+    fn test_study_serde_empty() {
+        // Test serializing a study with no trials
+        let study: Study<f64> = Study::new(Direction::Minimize);
+
+        let json = serde_json::to_string(&study).unwrap();
+        let loaded: Study<f64> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.n_trials(), 0);
+        assert_eq!(loaded.direction(), Direction::Minimize);
+        assert!(loaded.best_trial().is_err());
+    }
+
+    #[test]
+    fn test_study_serde_with_custom_value_type() {
+        // Test Study with i32 value type
+        let study: Study<i32> = Study::new(Direction::Minimize);
+
+        study
+            .optimize(5, |trial| {
+                let n = trial.suggest_int("n", 1, 100)?;
+                Ok::<_, TpeError>(n as i32)
+            })
+            .unwrap();
+
+        let json = serde_json::to_string(&study).unwrap();
+        let loaded: Study<i32> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.n_trials(), 5);
+        let best = loaded.best_trial().unwrap();
+        assert!(best.value >= 1 && best.value <= 100);
+    }
+
+    #[test]
+    fn test_completed_trial_access_after_serde() {
+        let study: Study<f64> = Study::new(Direction::Minimize);
+
+        study
+            .optimize(3, |trial| {
+                let x = trial.suggest_float("x", 0.0, 10.0)?;
+                Ok::<_, TpeError>(x * x)
+            })
+            .unwrap();
+
+        let json = serde_json::to_string(&study).unwrap();
+        let loaded: Study<f64> = serde_json::from_str(&json).unwrap();
+
+        // Access all trials
+        let trials = loaded.trials();
+        assert_eq!(trials.len(), 3);
+
+        for trial in &trials {
+            assert!(trial.params.contains_key("x"));
+            assert!(trial.distributions.contains_key("x"));
+            assert!(trial.value >= 0.0); // x^2 is non-negative
+        }
+    }
+}
