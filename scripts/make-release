@@ -69,7 +69,6 @@ fi
 
 # Commit and tag
 git -C "$ROOT_DIR" add "$CARGO_TOML"
-[[ -f "$ROOT_DIR/Cargo.lock" ]] && git -C "$ROOT_DIR" add "$ROOT_DIR/Cargo.lock"
 git -C "$ROOT_DIR" commit -m "chore: release v$NEW_VERSION"
 git -C "$ROOT_DIR" tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
 
