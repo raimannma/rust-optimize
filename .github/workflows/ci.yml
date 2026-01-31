@@ -61,6 +61,21 @@ jobs:
             cargo test --verbose --features "${{ matrix.features }}"
           fi
 
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: |
+          rustup override set stable
+          rustup update stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run sync example (ml_hyperparameter_tuning)
+        run: cargo run --example ml_hyperparameter_tuning
+      - name: Run async example (async_api_optimization)
+        run: cargo run --example async_api_optimization --features async
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
@@ -243,6 +258,7 @@ jobs:
       - fmt
       - clippy
       - test
+      - examples
       - docs
       - feature-check
       - coverage

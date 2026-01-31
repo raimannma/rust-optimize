@@ -23,4 +23,13 @@ default = []
 async = ["dep:tokio"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[[example]]
+name = "async_api_optimization"
+path = "examples/async_api_optimization.rs"
+required-features = ["async"]
+
+[[example]]
+name = "ml_hyperparameter_tuning"
+path = "examples/ml_hyperparameter_tuning.rs"
