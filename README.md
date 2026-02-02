@@ -68,6 +68,56 @@ let sampler = TpeSampler::builder()
 let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 ```
 
+#### Gamma Strategies
+
+The gamma parameter controls what fraction of trials are considered "good" when building the TPE model. Instead of a fixed value, you can use adaptive strategies:
+
+| Strategy | Description | Formula |
+|----------|-------------|---------|
+| `FixedGamma` | Constant value (default: 0.25) | `γ = constant` |
+| `LinearGamma` | Linear interpolation over trials | `γ = γ_min + (γ_max - γ_min) * min(n/n_max, 1)` |
+| `SqrtGamma` | Optuna-style inverse sqrt scaling | `γ = min(γ_max, factor/√n / n)` |
+| `HyperoptGamma` | Hyperopt-style adaptive | `γ = min(γ_max, (base + 1) / n)` |
+
+```rust
+use optimizer::sampler::tpe::{TpeSampler, SqrtGamma, LinearGamma};
+
+// Optuna-style gamma that decreases with more trials
+let sampler = TpeSampler::builder()
+    .gamma_strategy(SqrtGamma::default())
+    .build()
+    .unwrap();
+
+// Linear interpolation from 0.1 to 0.3 over 100 trials
+let sampler = TpeSampler::builder()
+    .gamma_strategy(LinearGamma::new(0.1, 0.3, 100).unwrap())
+    .build()
+    .unwrap();
+```
+
+You can also implement custom strategies:
+
+```rust
+use optimizer::sampler::tpe::{TpeSampler, GammaStrategy};
+
+#[derive(Debug, Clone)]
+struct MyGamma { base: f64 }
+
+impl GammaStrategy for MyGamma {
+    fn gamma(&self, n_trials: usize) -> f64 {
+        (self.base + 0.01 * n_trials as f64).min(0.5)
+    }
+    fn clone_box(&self) -> Box<dyn GammaStrategy> {
+        Box::new(self.clone())
+    }
+}
+
+let sampler = TpeSampler::builder()
+    .gamma_strategy(MyGamma { base: 0.1 })
+    .build()
+    .unwrap();
+```
+
 ### Grid Search
 
 ```rust
