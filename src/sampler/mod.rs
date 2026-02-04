@@ -1,15 +1,10 @@
 //! Sampler trait and implementations for parameter sampling.
 
 pub mod grid;
-pub mod multivariate_tpe;
 pub mod random;
 pub mod tpe;
 
 use std::collections::HashMap;
-
-pub use multivariate_tpe::{
-    ConstantLiarStrategy, MultivariateTpeSampler, MultivariateTpeSamplerBuilder,
-};
 
 use crate::distribution::Distribution;
 use crate::param::ParamValue;

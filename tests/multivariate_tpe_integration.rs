@@ -9,8 +9,7 @@
     clippy::cast_possible_truncation
 )]
 
-use optimizer::sampler::MultivariateTpeSampler;
-use optimizer::sampler::tpe::TpeSampler;
+use optimizer::sampler::tpe::{MultivariateTpeSampler, TpeSampler};
 use optimizer::{Direction, Error, Study};
 
 // =============================================================================

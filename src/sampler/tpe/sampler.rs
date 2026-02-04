@@ -280,6 +280,7 @@ impl TpeSampler {
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss
     )]
+    #[must_use]
     fn split_trials<'a>(
         &self,
         history: &'a [CompletedTrial],
