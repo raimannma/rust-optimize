@@ -13,9 +13,10 @@ A Rust library for black-box optimization with multiple sampling strategies.
   - **Random Search** - Simple random sampling for baseline comparisons
   - **TPE (Tree-Parzen Estimator)** - Bayesian optimization for efficient search
   - **Grid Search** - Exhaustive search over a specified parameter grid
-- Float, integer, and categorical parameter types
+- Float, integer, categorical, boolean, and enum parameter types
 - Log-scale and stepped parameter sampling
 - Sync and async optimization with parallel trial evaluation
+- `#[derive(Categorical)]` for enum parameters
 
 ## Quick Start
 
