@@ -23,10 +23,7 @@
 
 use std::ops::ControlFlow;
 
-use optimizer::parameter::{FloatParam, IntParam, Parameter};
-use optimizer::sampler::CompletedTrial;
-use optimizer::sampler::tpe::TpeSampler;
-use optimizer::{Direction, ParamValue, Study, Trial};
+use optimizer::prelude::*;
 
 // ============================================================================
 // Configuration: Hyperparameters we want to tune
@@ -150,11 +147,7 @@ fn on_trial_complete(study: &Study<f64>, trial: &CompletedTrial<f64>) -> Control
     // Print trial number and objective value
     print!("{:>5} ", study.n_trials());
     for value in trial.params.values() {
-        match value {
-            ParamValue::Float(v) => print!("{v:>12.5} "),
-            ParamValue::Int(v) => print!("{v:>12} "),
-            ParamValue::Categorical(v) => print!("{v:>12} "),
-        }
+        print!("{value:>12} ");
     }
     println!("{:>12.6}", trial.value);
 
@@ -204,24 +197,25 @@ fn main() -> optimizer::Result<()> {
     println!("{}", "-".repeat(60));
 
     // Step 3: Define parameter search spaces
-    let learning_rate_param = FloatParam::new(0.001, 0.3).log_scale();
-    let max_depth_param = IntParam::new(3, 12);
-    let n_estimators_param = IntParam::new(50, 500).step(50);
-    let subsample_param = FloatParam::new(0.5, 1.0);
-    let colsample_bytree_param = FloatParam::new(0.5, 1.0);
-    let min_child_weight_param = IntParam::new(1, 10);
-    let reg_alpha_param = FloatParam::new(1e-3, 10.0).log_scale();
-    let reg_lambda_param = FloatParam::new(1e-3, 10.0).log_scale();
+    let learning_rate_param = FloatParam::new(0.001, 0.3)
+        .name("learning_rate")
+        .log_scale();
+    let max_depth_param = IntParam::new(3, 12).name("max_depth");
+    let n_estimators_param = IntParam::new(50, 500).name("n_estimators").step(50);
+    let subsample_param = FloatParam::new(0.5, 1.0).name("subsample");
+    let colsample_bytree_param = FloatParam::new(0.5, 1.0).name("colsample_bytree");
+    let min_child_weight_param = IntParam::new(1, 10).name("min_child_weight");
+    let reg_alpha_param = FloatParam::new(1e-3, 10.0).name("reg_alpha").log_scale();
+    let reg_lambda_param = FloatParam::new(1e-3, 10.0).name("reg_lambda").log_scale();
 
     // Step 4: Run optimization
     //
-    // optimize_with_callback_sampler runs the objective function for up to
+    // optimize_with_callback runs the objective function for up to
     // n_trials iterations. After each trial, it calls the callback.
-    // The "_sampler" suffix means the TPE sampler gets access to trial
-    // history for informed sampling.
+    // The sampler gets access to trial history for informed sampling.
     let n_trials = 50;
 
-    study.optimize_with_callback_sampler(
+    study.optimize_with_callback(
         n_trials,
         |trial| {
             objective(
@@ -248,18 +242,29 @@ fn main() -> optimizer::Result<()> {
     println!("\nBest trial:");
     println!("  Loss: {:.6}", best.value);
     println!("  Parameters:");
-
-    for (id, value) in &best.params {
-        let label = best
-            .param_labels
-            .get(id)
-            .map_or_else(|| format!("{id}"), |l| l.clone());
-        match value {
-            ParamValue::Float(v) => println!("    {label}: {v:.6}"),
-            ParamValue::Int(v) => println!("    {label}: {v}"),
-            ParamValue::Categorical(v) => println!("    {label}: category {v}"),
-        }
-    }
+    println!(
+        "    learning_rate: {:.6}",
+        best.get(&learning_rate_param).unwrap()
+    );
+    println!("    max_depth: {}", best.get(&max_depth_param).unwrap());
+    println!(
+        "    n_estimators: {}",
+        best.get(&n_estimators_param).unwrap()
+    );
+    println!("    subsample: {:.6}", best.get(&subsample_param).unwrap());
+    println!(
+        "    colsample_bytree: {:.6}",
+        best.get(&colsample_bytree_param).unwrap()
+    );
+    println!(
+        "    min_child_weight: {}",
+        best.get(&min_child_weight_param).unwrap()
+    );
+    println!("    reg_alpha: {:.6}", best.get(&reg_alpha_param).unwrap());
+    println!(
+        "    reg_lambda: {:.6}",
+        best.get(&reg_lambda_param).unwrap()
+    );
 
     // Step 5: Use the best parameters (in a real app)
     //

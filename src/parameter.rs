@@ -145,6 +145,7 @@ pub struct FloatParam {
     high: f64,
     log_scale: bool,
     step: Option<f64>,
+    name: Option<String>,
 }
 
 impl FloatParam {
@@ -157,6 +158,7 @@ impl FloatParam {
             high,
             log_scale: false,
             step: None,
+            name: None,
         }
     }
 
@@ -171,6 +173,16 @@ impl FloatParam {
     #[must_use]
     pub fn step(mut self, step: f64) -> Self {
         self.step = Some(step);
+        self
+    }
+
+    /// Sets a human-readable name for this parameter.
+    ///
+    /// When set, this name is used as the parameter's label instead of
+    /// the default `Debug` output.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 }
@@ -217,6 +229,10 @@ impl Parameter for FloatParam {
         }
         Ok(())
     }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("{self:?}"))
+    }
 }
 
 /// An integer parameter with optional log-scale and step size.
@@ -248,6 +264,7 @@ pub struct IntParam {
     high: i64,
     log_scale: bool,
     step: Option<i64>,
+    name: Option<String>,
 }
 
 impl IntParam {
@@ -260,6 +277,7 @@ impl IntParam {
             high,
             log_scale: false,
             step: None,
+            name: None,
         }
     }
 
@@ -274,6 +292,16 @@ impl IntParam {
     #[must_use]
     pub fn step(mut self, step: i64) -> Self {
         self.step = Some(step);
+        self
+    }
+
+    /// Sets a human-readable name for this parameter.
+    ///
+    /// When set, this name is used as the parameter's label instead of
+    /// the default `Debug` output.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 }
@@ -320,6 +348,10 @@ impl Parameter for IntParam {
         }
         Ok(())
     }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("{self:?}"))
+    }
 }
 
 /// A categorical parameter that selects from a list of choices.
@@ -339,6 +371,7 @@ impl Parameter for IntParam {
 pub struct CategoricalParam<T: Clone> {
     id: ParamId,
     choices: Vec<T>,
+    name: Option<String>,
 }
 
 impl<T: Clone> CategoricalParam<T> {
@@ -348,7 +381,18 @@ impl<T: Clone> CategoricalParam<T> {
         Self {
             id: ParamId::new(),
             choices,
+            name: None,
         }
+    }
+
+    /// Sets a human-readable name for this parameter.
+    ///
+    /// When set, this name is used as the parameter's label instead of
+    /// the default `Debug` output.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 }
 
@@ -380,6 +424,10 @@ impl<T: Clone + Debug> Parameter for CategoricalParam<T> {
         }
         Ok(())
     }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("{self:?}"))
+    }
 }
 
 /// A boolean parameter (equivalent to a categorical with `[false, true]`).
@@ -396,13 +444,27 @@ impl<T: Clone + Debug> Parameter for CategoricalParam<T> {
 #[derive(Clone, Debug)]
 pub struct BoolParam {
     id: ParamId,
+    name: Option<String>,
 }
 
 impl BoolParam {
     /// Creates a new boolean parameter.
     #[must_use]
     pub fn new() -> Self {
-        Self { id: ParamId::new() }
+        Self {
+            id: ParamId::new(),
+            name: None,
+        }
+    }
+
+    /// Sets a human-readable name for this parameter.
+    ///
+    /// When set, this name is used as the parameter's label instead of
+    /// the default `Debug` output.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 }
 
@@ -430,6 +492,10 @@ impl Parameter for BoolParam {
                 "Categorical distribution should return Categorical value",
             )),
         }
+    }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("{self:?}"))
     }
 }
 
@@ -529,6 +595,7 @@ pub trait Categorical: Sized + Clone {
 #[derive(Clone, Debug)]
 pub struct EnumParam<T: Categorical> {
     id: ParamId,
+    name: Option<String>,
     _marker: core::marker::PhantomData<T>,
 }
 
@@ -538,8 +605,19 @@ impl<T: Categorical> EnumParam<T> {
     pub fn new() -> Self {
         Self {
             id: ParamId::new(),
+            name: None,
             _marker: core::marker::PhantomData,
         }
+    }
+
+    /// Sets a human-readable name for this parameter.
+    ///
+    /// When set, this name is used as the parameter's label instead of
+    /// the default `Debug` output.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 }
 
@@ -569,6 +647,10 @@ impl<T: Categorical + Debug> Parameter for EnumParam<T> {
                 "Categorical distribution should return Categorical value",
             )),
         }
+    }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| format!("{self:?}"))
     }
 }
 

@@ -33,7 +33,7 @@ async fn test_optimize_async_basic() {
 }
 
 #[tokio::test]
-async fn test_optimize_async_with_sampler() {
+async fn test_optimize_async_with_tpe() {
     let sampler = TpeSampler::builder()
         .seed(42)
         .n_startup_trials(5)
@@ -45,7 +45,7 @@ async fn test_optimize_async_with_sampler() {
     let x_param = FloatParam::new(-5.0, 5.0);
 
     study
-        .optimize_async_with_sampler(15, move |mut trial| {
+        .optimize_async(15, move |mut trial| {
             let x_param = x_param.clone();
             async move {
                 let x = x_param.suggest(&mut trial)?;
@@ -82,7 +82,7 @@ async fn test_optimize_parallel() {
 }
 
 #[tokio::test]
-async fn test_optimize_parallel_with_sampler() {
+async fn test_optimize_parallel_with_tpe() {
     let sampler = TpeSampler::builder()
         .seed(42)
         .n_startup_trials(5)
@@ -95,7 +95,7 @@ async fn test_optimize_parallel_with_sampler() {
     let y_param = FloatParam::new(-5.0, 5.0);
 
     study
-        .optimize_parallel_with_sampler(15, 3, move |mut trial| {
+        .optimize_parallel(15, 3, move |mut trial| {
             let x_param = x_param.clone();
             let y_param = y_param.clone();
             async move {
@@ -128,6 +128,7 @@ async fn test_optimize_async_all_failures() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_optimize_async_with_sampler_all_failures() {
     let study: Study<f64> = Study::new(Direction::Minimize);
 
@@ -162,6 +163,7 @@ async fn test_optimize_parallel_all_failures() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_optimize_parallel_with_sampler_all_failures() {
     let study: Study<f64> = Study::new(Direction::Minimize);
 

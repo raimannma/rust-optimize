@@ -28,31 +28,26 @@
 //! # Quick Start
 //!
 //! ```
-//! use optimizer::parameter::{FloatParam, Parameter};
-//! use optimizer::sampler::tpe::TpeSampler;
-//! use optimizer::{Direction, Study};
+//! use optimizer::prelude::*;
 //!
 //! // Create a study with TPE sampler
 //! let sampler = TpeSampler::builder().seed(42).build().unwrap();
 //! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 //!
 //! // Define parameter search space
-//! let x_param = FloatParam::new(-10.0, 10.0);
+//! let x = FloatParam::new(-10.0, 10.0).name("x");
 //!
 //! // Optimize x^2 for 20 trials
 //! study
-//!     .optimize_with_sampler(20, |trial| {
-//!         let x = x_param.suggest(trial)?;
-//!         Ok::<_, optimizer::Error>(x * x)
+//!     .optimize(20, |trial| {
+//!         let x_val = x.suggest(trial)?;
+//!         Ok::<_, Error>(x_val * x_val)
 //!     })
 //!     .unwrap();
 //!
 //! // Get the best result
 //! let best = study.best_trial().unwrap();
-//! println!("Best value: {}", best.value);
-//! for (id, label) in &best.param_labels {
-//!     println!("  {}: {:?}", label, best.params[id]);
-//! }
+//! println!("x = {}", best.get(&x).unwrap());
 //! ```
 //!
 //! # Creating a Study
@@ -205,6 +200,33 @@ pub use param::ParamValue;
 pub use parameter::{
     BoolParam, Categorical, CategoricalParam, EnumParam, FloatParam, IntParam, ParamId, Parameter,
 };
+pub use sampler::CompletedTrial;
+pub use sampler::grid::GridSearchSampler;
+pub use sampler::random::RandomSampler;
+pub use sampler::tpe::TpeSampler;
 pub use study::Study;
 pub use trial::Trial;
 pub use types::{Direction, TrialState};
+
+/// Convenient wildcard import for the most common types.
+///
+/// ```
+/// use optimizer::prelude::*;
+/// ```
+pub mod prelude {
+    #[cfg(feature = "derive")]
+    pub use optimizer_derive::Categorical as DeriveCategory;
+
+    pub use crate::error::{Error, Result};
+    pub use crate::param::ParamValue;
+    pub use crate::parameter::{
+        BoolParam, Categorical, CategoricalParam, EnumParam, FloatParam, IntParam, Parameter,
+    };
+    pub use crate::sampler::CompletedTrial;
+    pub use crate::sampler::grid::GridSearchSampler;
+    pub use crate::sampler::random::RandomSampler;
+    pub use crate::sampler::tpe::TpeSampler;
+    pub use crate::study::Study;
+    pub use crate::trial::Trial;
+    pub use crate::types::Direction;
+}

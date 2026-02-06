@@ -14,3 +14,13 @@ pub enum ParamValue {
     /// A categorical parameter value, stored as an index into the choices array.
     Categorical(usize),
 }
+
+impl core::fmt::Display for ParamValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Float(v) => write!(f, "{v}"),
+            Self::Int(v) => write!(f, "{v}"),
+            Self::Categorical(v) => write!(f, "category({v})"),
+        }
+    }
+}

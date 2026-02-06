@@ -31,7 +31,7 @@ fn test_tpe_optimizes_quadratic_function() {
     let x_param = FloatParam::new(-10.0, 10.0);
 
     study
-        .optimize_with_sampler(50, |trial| {
+        .optimize(50, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>((x - 3.0).powi(2))
         })
@@ -64,7 +64,7 @@ fn test_tpe_optimizes_multivariate_function() {
     let y_param = FloatParam::new(-5.0, 5.0);
 
     study
-        .optimize_with_sampler(100, |trial| {
+        .optimize(100, |trial| {
             let x = x_param.suggest(trial)?;
             let y = y_param.suggest(trial)?;
             Ok::<_, Error>(x * x + y * y)
@@ -96,7 +96,7 @@ fn test_tpe_maximization() {
     let x_param = FloatParam::new(-10.0, 10.0);
 
     study
-        .optimize_with_sampler(50, |trial| {
+        .optimize(50, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(-(x - 2.0).powi(2) + 10.0)
         })
@@ -231,7 +231,7 @@ fn test_random_sampler_reproducibility() {
     let x_param2 = FloatParam::new(0.0, 100.0);
 
     study1
-        .optimize_with_sampler(100, |trial| {
+        .optimize(100, |trial| {
             let x = x_param1.suggest(trial)?;
             values1.push(x);
             Ok::<_, Error>(x)
@@ -239,7 +239,7 @@ fn test_random_sampler_reproducibility() {
         .unwrap();
 
     study2
-        .optimize_with_sampler(100, |trial| {
+        .optimize(100, |trial| {
             let x = x_param2.suggest(trial)?;
             values2.push(x);
             Ok::<_, Error>(x)
@@ -516,7 +516,7 @@ fn test_tpe_with_categorical_parameter() {
 
     // Optimization where the best choice depends on the categorical
     study
-        .optimize_with_sampler(30, |trial| {
+        .optimize(30, |trial| {
             let choice = model_param.suggest(trial)?;
             let x = x_param.suggest(trial)?;
 
@@ -553,7 +553,7 @@ fn test_tpe_with_integer_parameters() {
 
     // Minimize (n - 7)^2 where n in [1, 10]
     study
-        .optimize_with_sampler(30, |trial| {
+        .optimize(30, |trial| {
             let n = n_param.suggest(trial)?;
             Ok::<_, Error>(((n - 7) as f64).powi(2))
         })
@@ -730,7 +730,7 @@ fn test_study_set_sampler() {
     let x_param = FloatParam::new(-5.0, 5.0);
 
     study
-        .optimize_with_sampler(10, |trial| {
+        .optimize(10, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x * x)
         })
@@ -787,6 +787,7 @@ fn test_optimize_with_callback_all_trials_fail() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_optimize_with_sampler_all_trials_fail() {
     let study: Study<f64> = Study::new(Direction::Minimize);
 
@@ -799,6 +800,7 @@ fn test_optimize_with_sampler_all_trials_fail() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_optimize_with_callback_sampler_all_trials_fail() {
     use std::ops::ControlFlow;
 
@@ -840,7 +842,7 @@ fn test_tpe_sampler_builder_default_trait() {
     let x_param = FloatParam::new(0.0, 1.0);
 
     study
-        .optimize_with_sampler(5, |trial| {
+        .optimize(5, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x)
         })
@@ -857,7 +859,7 @@ fn test_tpe_sampler_default_trait() {
     let x_param = FloatParam::new(0.0, 1.0);
 
     study
-        .optimize_with_sampler(5, |trial| {
+        .optimize(5, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x)
         })
@@ -879,7 +881,7 @@ fn test_tpe_with_fixed_kde_bandwidth() {
     let x_param = FloatParam::new(-5.0, 5.0);
 
     study
-        .optimize_with_sampler(20, |trial| {
+        .optimize(20, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x * x)
         })
@@ -907,7 +909,7 @@ fn test_tpe_split_trials_with_two_trials() {
     let x_param = FloatParam::new(0.0, 10.0);
 
     study
-        .optimize_with_sampler(5, |trial| {
+        .optimize(5, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x)
         })
@@ -928,7 +930,7 @@ fn test_tpe_with_log_scale_int() {
     let batch_param = IntParam::new(1, 1024).log_scale();
 
     study
-        .optimize_with_sampler(20, |trial| {
+        .optimize(20, |trial| {
             let batch_size = batch_param.suggest(trial)?;
             Ok::<_, Error>(((batch_size as f64).log2() - 5.0).powi(2))
         })
@@ -951,7 +953,7 @@ fn test_tpe_with_step_distributions() {
     let n_param = IntParam::new(0, 100).step(10);
 
     study
-        .optimize_with_sampler(20, |trial| {
+        .optimize(20, |trial| {
             let x = x_param.suggest(trial)?;
             let n = n_param.suggest(trial)?;
             Ok::<_, Error>((x - 5.0).powi(2) + ((n - 50) as f64).powi(2))
@@ -963,15 +965,16 @@ fn test_tpe_with_step_distributions() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_create_trial_vs_create_trial_with_sampler() {
     let sampler = RandomSampler::with_seed(42);
     let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 
-    // create_trial() creates trial without sampler integration
+    // create_trial() creates trial with sampler integration for Study<f64>
     let trial1 = study.create_trial();
     assert_eq!(trial1.id(), 0);
 
-    // create_trial_with_sampler() creates trial with sampler
+    // create_trial_with_sampler() is deprecated but still works
     let trial2 = study.create_trial_with_sampler();
     assert_eq!(trial2.id(), 1);
 
@@ -1034,7 +1037,7 @@ fn test_tpe_empty_good_or_bad_values_fallback() {
 
     // First optimize with one parameter
     study
-        .optimize_with_sampler(10, |trial| {
+        .optimize(10, |trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(x)
         })
@@ -1042,7 +1045,7 @@ fn test_tpe_empty_good_or_bad_values_fallback() {
 
     // Now try with a different parameter - TPE won't have history for "y"
     study
-        .optimize_with_sampler(5, |trial| {
+        .optimize(5, |trial| {
             let y = y_param.suggest(trial)?;
             Ok::<_, Error>(y)
         })
@@ -1084,7 +1087,7 @@ fn test_callback_sampler_early_stopping() {
     let x_param = FloatParam::new(0.0, 10.0);
 
     study
-        .optimize_with_callback_sampler(
+        .optimize_with_callback(
             100,
             |trial| {
                 let x = x_param.suggest(trial)?;
@@ -1197,7 +1200,7 @@ fn test_suggest_bool_with_tpe() {
     let x_param = FloatParam::new(0.0, 10.0);
 
     study
-        .optimize_with_sampler(20, |trial| {
+        .optimize(20, |trial| {
             let use_large = use_large_param.suggest(trial)?;
             let x = x_param.suggest(trial)?;
             // The value depends on use_large flag
@@ -1293,7 +1296,7 @@ fn test_params_with_tpe() {
     let n_param = IntParam::new(1, 10);
 
     study
-        .optimize_with_sampler(30, |trial| {
+        .optimize(30, |trial| {
             let x = x_param.suggest(trial)?;
             let n = n_param.suggest(trial)?;
             Ok::<_, Error>(x * x + (n as f64 - 5.0).powi(2))
@@ -1323,4 +1326,40 @@ fn test_single_value_float_range() {
         (x - 4.2).abs() < f64::EPSILON,
         "single-value range should return that value"
     );
+}
+
+// =============================================================================
+// Tests for new API features
+// =============================================================================
+
+#[test]
+fn test_param_name() {
+    let param = FloatParam::new(0.0, 1.0).name("learning_rate");
+    let mut trial = Trial::new(0);
+    param.suggest(&mut trial).unwrap();
+
+    let labels = trial.param_labels();
+    let label = labels.values().next().unwrap();
+    assert_eq!(label, "learning_rate");
+}
+
+#[test]
+fn test_completed_trial_get() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(-10.0, 10.0).name("x");
+    let n_param = IntParam::new(1, 10).name("n");
+
+    study
+        .optimize(5, |trial| {
+            let x = x_param.suggest(trial)?;
+            let n = n_param.suggest(trial)?;
+            Ok::<_, Error>(x * x + n as f64)
+        })
+        .unwrap();
+
+    let best = study.best_trial().unwrap();
+    let x_val: f64 = best.get(&x_param).unwrap();
+    let n_val: i64 = best.get(&n_param).unwrap();
+    assert!((-10.0..=10.0).contains(&x_val));
+    assert!((1..=10).contains(&n_val));
 }

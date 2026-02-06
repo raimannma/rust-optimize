@@ -1,7 +1,4 @@
-use optimizer::parameter::{
-    BoolParam, CategoricalParam, EnumParam, FloatParam, IntParam, Parameter,
-};
-use optimizer::{Direction, Study};
+use optimizer::prelude::*;
 use optimizer_derive::Categorical;
 
 #[derive(Clone, Debug, Categorical)]
@@ -15,13 +12,13 @@ fn main() {
     let study: Study<f64> = Study::new(Direction::Minimize);
 
     // Define parameters outside the objective function
-    let lr_param = FloatParam::new(1e-5, 1e-1).log_scale();
-    let n_layers_param = IntParam::new(1, 5);
-    let units_param = IntParam::new(32, 512).step(32);
-    let optimizer_param = CategoricalParam::new(vec!["sgd", "adam", "rmsprop"]);
-    let activation_param = EnumParam::<Activation>::new();
-    let batch_size_param = IntParam::new(16, 256).log_scale();
-    let use_dropout_param = BoolParam::new();
+    let lr_param = FloatParam::new(1e-5, 1e-1).name("lr").log_scale();
+    let n_layers_param = IntParam::new(1, 5).name("n_layers");
+    let units_param = IntParam::new(32, 512).name("units").step(32);
+    let optimizer_param = CategoricalParam::new(vec!["sgd", "adam", "rmsprop"]).name("optimizer");
+    let activation_param = EnumParam::<Activation>::new().name("activation");
+    let batch_size_param = IntParam::new(16, 256).name("batch_size").log_scale();
+    let use_dropout_param = BoolParam::new().name("use_dropout");
 
     study
         .optimize(20, |trial| {
@@ -43,13 +40,17 @@ fn main() {
                 trial.id()
             );
 
-            Ok::<_, optimizer::Error>(loss)
+            Ok::<_, Error>(loss)
         })
         .unwrap();
 
     let best = study.best_trial().unwrap();
     println!("\nBest trial: value={:.4}", best.value);
-    for (id, label) in &best.param_labels {
-        println!("  {}: {:?}", label, best.params[id]);
-    }
+    println!("  lr: {:.6}", best.get(&lr_param).unwrap());
+    println!("  n_layers: {}", best.get(&n_layers_param).unwrap());
+    println!("  units: {}", best.get(&units_param).unwrap());
+    println!("  optimizer: {}", best.get(&optimizer_param).unwrap());
+    println!("  activation: {:?}", best.get(&activation_param).unwrap());
+    println!("  batch_size: {}", best.get(&batch_size_param).unwrap());
+    println!("  use_dropout: {}", best.get(&use_dropout_param).unwrap());
 }

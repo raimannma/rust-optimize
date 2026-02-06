@@ -1,5 +1,6 @@
 //! Study implementation for managing optimization trials.
 
+use core::any::Any;
 #[cfg(feature = "async")]
 use core::future::Future;
 use core::ops::ControlFlow;
@@ -43,6 +44,10 @@ where
     completed_trials: Arc<RwLock<Vec<CompletedTrial<V>>>>,
     /// Counter for generating unique trial IDs.
     next_trial_id: AtomicU64,
+    /// Optional factory for creating sampler-aware trials.
+    /// Set automatically for `Study<f64>` so that `create_trial()` and all
+    /// optimization methods use the sampler without requiring `_with_sampler` suffixes.
+    trial_factory: Option<Arc<dyn Fn(u64) -> Trial + Send + Sync>>,
 }
 
 impl<V> Study<V>
@@ -66,7 +71,10 @@ where
     /// assert_eq!(study.direction(), Direction::Minimize);
     /// ```
     #[must_use]
-    pub fn new(direction: Direction) -> Self {
+    pub fn new(direction: Direction) -> Self
+    where
+        V: 'static,
+    {
         Self::with_sampler(direction, RandomSampler::new())
     }
 
@@ -87,13 +95,47 @@ where
     /// let study: Study<f64> = Study::with_sampler(Direction::Maximize, sampler);
     /// assert_eq!(study.direction(), Direction::Maximize);
     /// ```
-    pub fn with_sampler(direction: Direction, sampler: impl Sampler + 'static) -> Self {
+    pub fn with_sampler(direction: Direction, sampler: impl Sampler + 'static) -> Self
+    where
+        V: 'static,
+    {
+        let sampler: Arc<dyn Sampler> = Arc::new(sampler);
+        let completed_trials = Arc::new(RwLock::new(Vec::new()));
+
+        // For Study<f64>, set up a trial factory that provides sampler integration.
+        // This uses Any downcasting to check at runtime whether V = f64.
+        let trial_factory = Self::make_trial_factory(&sampler, &completed_trials);
+
         Self {
             direction,
-            sampler: Arc::new(sampler),
-            completed_trials: Arc::new(RwLock::new(Vec::new())),
+            sampler,
+            completed_trials,
             next_trial_id: AtomicU64::new(0),
+            trial_factory,
         }
+    }
+
+    /// Builds a trial factory for sampler integration when `V = f64`.
+    fn make_trial_factory(
+        sampler: &Arc<dyn Sampler>,
+        completed_trials: &Arc<RwLock<Vec<CompletedTrial<V>>>>,
+    ) -> Option<Arc<dyn Fn(u64) -> Trial + Send + Sync>>
+    where
+        V: 'static,
+    {
+        // Try to downcast the completed_trials Arc to the f64 specialization.
+        // This succeeds only when V = f64, enabling automatic sampler integration.
+        let any_ref: &dyn Any = completed_trials;
+        let f64_trials: Option<&Arc<RwLock<Vec<CompletedTrial<f64>>>>> = any_ref.downcast_ref();
+
+        f64_trials.map(|trials| {
+            let sampler = Arc::clone(sampler);
+            let trials = Arc::clone(trials);
+            let factory: Arc<dyn Fn(u64) -> Trial + Send + Sync> = Arc::new(move |id| {
+                Trial::with_sampler(id, Arc::clone(&sampler), Arc::clone(&trials))
+            });
+            factory
+        })
     }
 
     /// Returns the optimization direction.
@@ -116,8 +158,12 @@ where
     /// let mut study: Study<f64> = Study::new(Direction::Minimize);
     /// study.set_sampler(TpeSampler::new());
     /// ```
-    pub fn set_sampler(&mut self, sampler: impl Sampler + 'static) {
+    pub fn set_sampler(&mut self, sampler: impl Sampler + 'static)
+    where
+        V: 'static,
+    {
         self.sampler = Arc::new(sampler);
+        self.trial_factory = Self::make_trial_factory(&self.sampler, &self.completed_trials);
     }
 
     /// Generates the next unique trial ID.
@@ -131,9 +177,9 @@ where
     /// parameter values. After the objective function is evaluated, call
     /// `complete_trial` or `fail_trial` to record the result.
     ///
-    /// Note: For `Study<f64>`, this method creates a trial without sampler
-    /// integration. Use `create_trial_with_sampler()` to create trials that
-    /// use the study's sampler and have access to trial history.
+    /// For `Study<f64>`, this method automatically integrates with the study's
+    /// sampler and trial history, so there is no need to call a separate
+    /// `create_trial_with_sampler()` method.
     ///
     /// # Examples
     ///
@@ -149,7 +195,11 @@ where
     /// ```
     pub fn create_trial(&self) -> Trial {
         let id = self.next_trial_id();
-        Trial::new(id)
+        if let Some(factory) = &self.trial_factory {
+            factory(id)
+        } else {
+            Trial::new(id)
+        }
     }
 
     /// Records a completed trial with its objective value.
@@ -763,270 +813,72 @@ where
     }
 }
 
-// Specialized implementation for Study<f64> that provides full sampler integration.
+// Specialized implementation for Study<f64> that provides deprecated `_with_sampler` aliases.
+//
+// For Study<f64>, the generic methods from `impl<V> Study<V>` (like `optimize()`,
+// `create_trial()`) now automatically use the sampler via the `trial_factory`.
+// The `_with_sampler` method names are deprecated in favor of the generic names.
+#[allow(clippy::missing_errors_doc)]
 impl Study<f64> {
-    /// Creates a new trial with sampler integration.
+    /// Deprecated: use `create_trial()` instead.
     ///
-    /// This method creates a trial that uses the study's sampler and has access
-    /// to the history of completed trials for informed parameter suggestions.
-    /// This is the recommended way to create trials when using `Study<f64>`.
-    ///
-    /// The trial's `suggest_*` methods will delegate to the sampler (e.g., TPE)
-    /// which can use historical trial data to make informed sampling decisions.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use optimizer::parameter::{FloatParam, Parameter};
-    /// use optimizer::sampler::random::RandomSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// // With a seeded sampler for reproducibility
-    /// let sampler = RandomSampler::with_seed(42);
-    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-    /// let mut trial = study.create_trial_with_sampler();
-    ///
-    /// // Parameter suggestions now use the study's sampler and history
-    /// let x_param = FloatParam::new(0.0, 1.0);
-    /// let x = x_param.suggest(&mut trial).unwrap();
-    /// ```
+    /// The generic `create_trial()` now automatically integrates with the sampler
+    /// for `Study<f64>`.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `create_trial()` instead — it now uses the sampler automatically for Study<f64>"
+    )]
     pub fn create_trial_with_sampler(&self) -> Trial {
-        let id = self.next_trial_id();
-        Trial::with_sampler(
-            id,
-            Arc::clone(&self.sampler),
-            Arc::clone(&self.completed_trials),
-        )
+        self.create_trial()
     }
 
-    /// Runs optimization with full sampler integration.
+    /// Deprecated: use `optimize()` instead.
     ///
-    /// This method is similar to the generic `optimizer` method but creates trials
-    /// using `create_trial_with_sampler()`, giving the sampler access to the history
-    /// of completed trials for informed parameter suggestions.
-    ///
-    /// This is the recommended way to run optimization when using `Study<f64>`
-    /// with advanced samplers like TPE.
-    ///
-    /// # Arguments
-    ///
-    /// * `n_trials` - The number of trials to run.
-    /// * `objective` - A closure that takes a mutable reference to a `Trial` and
-    ///   returns the objective value or an error.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use optimizer::parameter::{FloatParam, Parameter};
-    /// use optimizer::sampler::random::RandomSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// // Minimize x^2 with sampler integration
-    /// let sampler = RandomSampler::with_seed(42);
-    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-    ///
-    /// let x_param = FloatParam::new(-10.0, 10.0);
-    ///
-    /// study
-    ///     .optimize_with_sampler(10, |trial| {
-    ///         let x = x_param.suggest(trial)?;
-    ///         Ok::<_, optimizer::Error>(x * x)
-    ///     })
-    ///     .unwrap();
-    ///
-    /// // At least one trial should have completed
-    /// assert!(study.n_trials() > 0);
-    /// ```
-    pub fn optimize_with_sampler<F, E>(
-        &self,
-        n_trials: usize,
-        mut objective: F,
-    ) -> crate::Result<()>
+    /// The generic `optimize()` now automatically integrates with the sampler
+    /// for `Study<f64>`.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `optimize()` instead — it now uses the sampler automatically for Study<f64>"
+    )]
+    pub fn optimize_with_sampler<F, E>(&self, n_trials: usize, objective: F) -> crate::Result<()>
     where
         F: FnMut(&mut Trial) -> core::result::Result<f64, E>,
         E: ToString,
     {
-        for _ in 0..n_trials {
-            let mut trial = self.create_trial_with_sampler();
-
-            match objective(&mut trial) {
-                Ok(value) => {
-                    self.complete_trial(trial, value);
-                }
-                Err(e) => {
-                    self.fail_trial(trial, e.to_string());
-                }
-            }
-        }
-
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
-            return Err(crate::Error::NoCompletedTrials);
-        }
-
-        Ok(())
+        self.optimize(n_trials, objective)
     }
 
-    /// Runs optimization with a callback and full sampler integration.
+    /// Deprecated: use `optimize_with_callback()` instead.
     ///
-    /// This method combines the benefits of `optimize_with_sampler` (sampler access
-    /// to trial history) with `optimize_with_callback` (progress monitoring and
-    /// early stopping).
-    ///
-    /// # Arguments
-    ///
-    /// * `n_trials` - The maximum number of trials to run.
-    /// * `objective` - A closure that takes a mutable reference to a `Trial` and
-    ///   returns the objective value or an error.
-    /// * `callback` - A closure called after each successful trial. Returns
-    ///   `ControlFlow::Continue(())` to proceed or `ControlFlow::Break(())` to stop.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::NoCompletedTrials` if no trials completed successfully.
-    /// Returns `Error::Internal` if a completed trial is not found after adding (internal invariant violation).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    ///
-    /// use optimizer::parameter::{FloatParam, Parameter};
-    /// use optimizer::sampler::random::RandomSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// // Optimize with sampler integration and early stopping
-    /// let sampler = RandomSampler::with_seed(42);
-    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-    ///
-    /// let x_param = FloatParam::new(-10.0, 10.0);
-    ///
-    /// study
-    ///     .optimize_with_callback_sampler(
-    ///         100,
-    ///         |trial| {
-    ///             let x = x_param.suggest(trial)?;
-    ///             Ok::<_, optimizer::Error>(x * x)
-    ///         },
-    ///         |study, _completed_trial| {
-    ///             // Stop after finding 5 good trials
-    ///             if study.n_trials() >= 5 {
-    ///                 ControlFlow::Break(())
-    ///             } else {
-    ///                 ControlFlow::Continue(())
-    ///             }
-    ///         },
-    ///     )
-    ///     .unwrap();
-    ///
-    /// assert!(study.n_trials() >= 5);
-    /// ```
+    /// The generic `optimize_with_callback()` now automatically integrates with the
+    /// sampler for `Study<f64>`.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `optimize_with_callback()` instead — it now uses the sampler automatically for Study<f64>"
+    )]
     pub fn optimize_with_callback_sampler<F, C, E>(
         &self,
         n_trials: usize,
-        mut objective: F,
-        mut callback: C,
+        objective: F,
+        callback: C,
     ) -> crate::Result<()>
     where
         F: FnMut(&mut Trial) -> core::result::Result<f64, E>,
         C: FnMut(&Study<f64>, &CompletedTrial<f64>) -> ControlFlow<()>,
         E: ToString,
     {
-        for _ in 0..n_trials {
-            let mut trial = self.create_trial_with_sampler();
-
-            match objective(&mut trial) {
-                Ok(value) => {
-                    self.complete_trial(trial, value);
-
-                    // Get the just-completed trial for the callback
-                    let trials = self.completed_trials.read();
-                    let Some(completed) = trials.last() else {
-                        return Err(crate::Error::Internal(
-                            "completed trial not found after adding",
-                        ));
-                    };
-
-                    // Call the callback and check if we should stop
-                    // Note: We need to drop the read lock before calling callback
-                    // to avoid potential deadlock if callback accesses the study
-                    let completed_clone = completed.clone();
-                    drop(trials);
-
-                    if let ControlFlow::Break(()) = callback(self, &completed_clone) {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    self.fail_trial(trial, e.to_string());
-                }
-            }
-        }
-
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
-            return Err(crate::Error::NoCompletedTrials);
-        }
-
-        Ok(())
+        self.optimize_with_callback(n_trials, objective, callback)
     }
 
-    /// Runs optimization asynchronously with full sampler integration.
+    /// Deprecated: use `optimize_async()` instead.
     ///
-    /// This method combines async execution with the TPE sampler's ability to use
-    /// historical trial data for informed parameter suggestions.
-    ///
-    /// The objective function takes ownership of the `Trial` and must return it
-    /// along with the result. This allows async operations to use the trial
-    /// across await points.
-    ///
-    /// # Arguments
-    ///
-    /// * `n_trials` - The number of trials to run.
-    /// * `objective` - A function that takes a `Trial` and returns a `Future`
-    ///   that resolves to a tuple of `(Trial, Result<f64, E>)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use optimizer::parameter::{FloatParam, Parameter};
-    /// use optimizer::sampler::random::RandomSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// # #[cfg(feature = "async")]
-    /// # async fn example() -> optimizer::Result<()> {
-    /// // Minimize x^2 with async objective and sampler integration
-    /// let sampler = RandomSampler::with_seed(42);
-    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-    ///
-    /// let x_param = FloatParam::new(-10.0, 10.0);
-    ///
-    /// study
-    ///     .optimize_async_with_sampler(10, |mut trial| {
-    ///         let x_param = x_param.clone();
-    ///         async move {
-    ///             let x = x_param.suggest(&mut trial)?;
-    ///             // Simulate async work (e.g., network request)
-    ///             let value = x * x;
-    ///             Ok::<_, optimizer::Error>((trial, value))
-    ///         }
-    ///     })
-    ///     .await?;
-    ///
-    /// // At least one trial should have completed
-    /// assert!(study.n_trials() > 0);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// The generic `optimize_async()` now automatically integrates with the sampler
+    /// for `Study<f64>`.
     #[cfg(feature = "async")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `optimize_async()` instead — it now uses the sampler automatically for Study<f64>"
+    )]
     pub async fn optimize_async_with_sampler<F, Fut, E>(
         &self,
         n_trials: usize,
@@ -1037,84 +889,18 @@ impl Study<f64> {
         Fut: Future<Output = core::result::Result<(Trial, f64), E>>,
         E: ToString,
     {
-        for _ in 0..n_trials {
-            let trial = self.create_trial_with_sampler();
-
-            match objective(trial).await {
-                Ok((trial, value)) => {
-                    self.complete_trial(trial, value);
-                }
-                Err(e) => {
-                    // For async, we don't have the trial back on error
-                    // We'll just count this as a failed trial without recording it
-                    let _ = e.to_string();
-                }
-            }
-        }
-
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
-            return Err(crate::Error::NoCompletedTrials);
-        }
-
-        Ok(())
+        self.optimize_async(n_trials, objective).await
     }
 
-    /// Runs optimization with bounded parallelism and full sampler integration.
+    /// Deprecated: use `optimize_parallel()` instead.
     ///
-    /// This method combines parallel async execution with the TPE sampler's ability
-    /// to use historical trial data for informed parameter suggestions. Up to
-    /// `concurrency` trials run simultaneously.
-    ///
-    /// The objective function takes ownership of the `Trial` and must return it
-    /// along with the result. This allows async operations to use the trial
-    /// across await points.
-    ///
-    /// # Arguments
-    ///
-    /// * `n_trials` - The total number of trials to run.
-    /// * `concurrency` - The maximum number of trials to run simultaneously.
-    /// * `objective` - A function that takes a `Trial` and returns a `Future`
-    ///   that resolves to a tuple of `(Trial, f64)` or an error.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::NoCompletedTrials` if all trials failed (no successful trials).
-    /// Returns `Error::TaskError` if the semaphore is closed or a spawned task panics.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use optimizer::parameter::{FloatParam, Parameter};
-    /// use optimizer::sampler::random::RandomSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// # #[cfg(feature = "async")]
-    /// # async fn example() -> optimizer::Result<()> {
-    /// // Minimize x^2 with parallel async evaluation and sampler integration
-    /// let sampler = RandomSampler::with_seed(42);
-    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-    ///
-    /// let x_param = FloatParam::new(-10.0, 10.0);
-    ///
-    /// study
-    ///     .optimize_parallel_with_sampler(10, 4, move |mut trial| {
-    ///         let x_param = x_param.clone();
-    ///         async move {
-    ///             let x = x_param.suggest(&mut trial)?;
-    ///             // Async objective function (e.g., network request)
-    ///             let value = x * x;
-    ///             Ok::<_, optimizer::Error>((trial, value))
-    ///         }
-    ///     })
-    ///     .await?;
-    ///
-    /// // All trials should have completed
-    /// assert_eq!(study.n_trials(), 10);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// The generic `optimize_parallel()` now automatically integrates with the
+    /// sampler for `Study<f64>`.
     #[cfg(feature = "async")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `optimize_parallel()` instead — it now uses the sampler automatically for Study<f64>"
+    )]
     pub async fn optimize_parallel_with_sampler<F, Fut, E>(
         &self,
         n_trials: usize,
@@ -1126,51 +912,7 @@ impl Study<f64> {
         Fut: Future<Output = core::result::Result<(Trial, f64), E>> + Send,
         E: ToString + Send + 'static,
     {
-        use tokio::sync::Semaphore;
-
-        let semaphore = Arc::new(Semaphore::new(concurrency));
-        let objective = Arc::new(objective);
-
-        let mut handles = Vec::with_capacity(n_trials);
-
-        for _ in 0..n_trials {
-            let permit = semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .map_err(|e| crate::Error::TaskError(e.to_string()))?;
-            let trial = self.create_trial_with_sampler();
-            let objective = Arc::clone(&objective);
-
-            let handle = tokio::spawn(async move {
-                let result = objective(trial).await;
-                drop(permit); // Release semaphore permit when done
-                result
-            });
-
-            handles.push(handle);
-        }
-
-        // Wait for all tasks and record results
-        for handle in handles {
-            match handle
-                .await
-                .map_err(|e| crate::Error::TaskError(e.to_string()))?
-            {
-                Ok((trial, value)) => {
-                    self.complete_trial(trial, value);
-                }
-                Err(e) => {
-                    let _ = e.to_string();
-                }
-            }
-        }
-
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
-            return Err(crate::Error::NoCompletedTrials);
-        }
-
-        Ok(())
+        self.optimize_parallel(n_trials, concurrency, objective)
+            .await
     }
 }

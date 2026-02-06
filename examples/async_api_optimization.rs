@@ -6,7 +6,7 @@
 //!
 //! # Key Concepts Demonstrated
 //!
-//! - Async optimization with `optimize_parallel_with_sampler`
+//! - Async optimization with `optimize_parallel`
 //! - Running multiple trials concurrently for faster optimization
 //! - Boolean and categorical parameter types
 //! - Measuring speedup from parallelism
@@ -26,9 +26,7 @@
 
 use std::time::{Duration, Instant};
 
-use optimizer::parameter::{BoolParam, CategoricalParam, IntParam, Parameter};
-use optimizer::sampler::tpe::TpeSampler;
-use optimizer::{Direction, ParamValue, Study, Trial};
+use optimizer::prelude::*;
 
 // ============================================================================
 // Configuration: Service parameters we want to tune
@@ -179,15 +177,6 @@ async fn objective(
 // Helper Functions
 // ============================================================================
 
-/// Formats a parameter value for display.
-fn format_param(value: &ParamValue) -> String {
-    match value {
-        ParamValue::Float(v) => format!("{v:.4}"),
-        ParamValue::Int(v) => format!("{v}"),
-        ParamValue::Categorical(idx) => format!("category_{idx}"),
-    }
-}
-
 /// Prints the results of the optimization.
 fn print_results(study: &Study<f64>, elapsed: Duration, n_trials: usize) {
     println!("\n{}", "=".repeat(60));
@@ -206,21 +195,46 @@ fn print_results(study: &Study<f64>, elapsed: Duration, n_trials: usize) {
 }
 
 /// Prints the best configuration found.
-fn print_best_config(study: &Study<f64>) -> optimizer::Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn print_best_config(
+    study: &Study<f64>,
+    cache_size_mb_param: &IntParam,
+    connection_pool_size_param: &IntParam,
+    request_timeout_ms_param: &IntParam,
+    retry_count_param: &IntParam,
+    batch_size_param: &IntParam,
+    compression_level_param: &IntParam,
+    use_http2_param: &BoolParam,
+    load_balancing_param: &CategoricalParam<&str>,
+) -> optimizer::Result<()> {
     let best = study.best_trial()?;
 
     println!("\nBest configuration found:");
     println!("  Score: {:.6}", best.value);
     println!("\n  Parameters:");
-
-    for (id, value) in &best.params {
-        let label = best
-            .param_labels
-            .get(id)
-            .map_or_else(|| format!("{id}"), |l| l.clone());
-        let display = format_param(value);
-        println!("    {label}: {display}");
-    }
+    println!(
+        "    cache_size_mb: {}",
+        best.get(cache_size_mb_param).unwrap()
+    );
+    println!(
+        "    connection_pool_size: {}",
+        best.get(connection_pool_size_param).unwrap()
+    );
+    println!(
+        "    request_timeout_ms: {}",
+        best.get(request_timeout_ms_param).unwrap()
+    );
+    println!("    retry_count: {}", best.get(retry_count_param).unwrap());
+    println!("    batch_size: {}", best.get(batch_size_param).unwrap());
+    println!(
+        "    compression_level: {}",
+        best.get(compression_level_param).unwrap()
+    );
+    println!("    use_http2: {}", best.get(use_http2_param).unwrap());
+    println!(
+        "    load_balancing: {}",
+        best.get(load_balancing_param).unwrap()
+    );
 
     Ok(())
 }
@@ -262,19 +276,32 @@ async fn main() -> optimizer::Result<()> {
     let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 
     // Step 3: Define parameter search spaces
-    let cache_size_mb_param = IntParam::new(64, 1024).step(64);
-    let connection_pool_size_param = IntParam::new(10, 200).step(10);
-    let request_timeout_ms_param = IntParam::new(1000, 10000).step(500);
-    let retry_count_param = IntParam::new(0, 5);
-    let batch_size_param = IntParam::new(1, 256).log_scale();
-    let compression_level_param = IntParam::new(0, 9);
-    let use_http2_param = BoolParam::new();
+    let cache_size_mb_param = IntParam::new(64, 1024).name("cache_size_mb").step(64);
+    let connection_pool_size_param = IntParam::new(10, 200).name("connection_pool_size").step(10);
+    let request_timeout_ms_param = IntParam::new(1000, 10000)
+        .name("request_timeout_ms")
+        .step(500);
+    let retry_count_param = IntParam::new(0, 5).name("retry_count");
+    let batch_size_param = IntParam::new(1, 256).name("batch_size").log_scale();
+    let compression_level_param = IntParam::new(0, 9).name("compression_level");
+    let use_http2_param = BoolParam::new().name("use_http2");
     let load_balancing_param = CategoricalParam::new(vec![
         "round_robin",
         "least_connections",
         "random",
         "ip_hash",
-    ]);
+    ])
+    .name("load_balancing");
+
+    // Clone params for use after the closure moves them
+    let cache_size_mb_p = cache_size_mb_param.clone();
+    let connection_pool_size_p = connection_pool_size_param.clone();
+    let request_timeout_ms_p = request_timeout_ms_param.clone();
+    let retry_count_p = retry_count_param.clone();
+    let batch_size_p = batch_size_param.clone();
+    let compression_level_p = compression_level_param.clone();
+    let use_http2_p = use_http2_param.clone();
+    let load_balancing_p = load_balancing_param.clone();
 
     // Step 4: Configure optimization
     let n_trials = 40;
@@ -286,16 +313,15 @@ async fn main() -> optimizer::Result<()> {
 
     // Step 5: Run parallel async optimization
     //
-    // optimize_parallel_with_sampler:
+    // optimize_parallel:
     // - Runs up to `concurrency` trials simultaneously
     // - Each trial calls the objective function
     // - Uses a semaphore to limit concurrent evaluations
     // - Collects results as trials complete
     //
-    // The "_with_sampler" suffix means the TPE sampler gets access to
-    // trial history for informed sampling.
+    // The sampler gets access to trial history for informed sampling.
     study
-        .optimize_parallel_with_sampler(n_trials, concurrency, move |trial| {
+        .optimize_parallel(n_trials, concurrency, move |trial| {
             let cache_size_mb_param = cache_size_mb_param.clone();
             let connection_pool_size_param = connection_pool_size_param.clone();
             let request_timeout_ms_param = request_timeout_ms_param.clone();
@@ -325,7 +351,17 @@ async fn main() -> optimizer::Result<()> {
 
     // Step 5: Print results
     print_results(&study, elapsed, n_trials);
-    print_best_config(&study)?;
+    print_best_config(
+        &study,
+        &cache_size_mb_p,
+        &connection_pool_size_p,
+        &request_timeout_ms_p,
+        &retry_count_p,
+        &batch_size_p,
+        &compression_level_p,
+        &use_http2_p,
+        &load_balancing_p,
+    )?;
     print_top_trials(&study, 5);
 
     Ok(())
