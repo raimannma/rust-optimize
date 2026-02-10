@@ -60,7 +60,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 use crate::distribution::Distribution;
 use crate::error::{Error, Result};
@@ -149,7 +149,7 @@ impl TpeSampler {
             n_startup_trials: 10,
             n_ei_candidates: 24,
             kde_bandwidth: None,
-            rng: Mutex::new(StdRng::from_os_rng()),
+            rng: Mutex::new(rand::make_rng()),
         }
     }
 
@@ -251,7 +251,7 @@ impl TpeSampler {
 
         let rng = match seed {
             Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_os_rng(),
+            None => rand::make_rng(),
         };
 
         Ok(Self {
@@ -857,7 +857,7 @@ impl TpeSamplerBuilder {
 
         let rng = match self.seed {
             Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_os_rng(),
+            None => rand::make_rng(),
         };
 
         Ok(TpeSampler {

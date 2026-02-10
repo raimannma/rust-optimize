@@ -116,8 +116,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::{RngExt, SeedableRng};
 
 use super::{FixedGamma, GammaStrategy};
 use crate::distribution::Distribution;
@@ -219,7 +219,7 @@ impl MultivariateTpeSampler {
             n_ei_candidates: 24,
             group: false,
             constant_liar: ConstantLiarStrategy::None,
-            rng: Mutex::new(StdRng::from_os_rng()),
+            rng: Mutex::new(rand::make_rng()),
             joint_sample_cache: Mutex::new(None),
         }
     }
@@ -782,8 +782,6 @@ impl MultivariateTpeSampler {
         distribution: &Distribution,
         rng: &mut rand::rngs::StdRng,
     ) -> ParamValue {
-        use rand::Rng;
-
         match distribution {
             Distribution::Float(d) => {
                 let value = if d.log_scale {
@@ -1374,8 +1372,6 @@ impl MultivariateTpeSampler {
         bad_values: Vec<f64>,
         rng: &mut StdRng,
     ) -> f64 {
-        use rand::Rng;
-
         use crate::kde::KernelDensityEstimator;
 
         // Transform to internal space (log space if needed)
@@ -1568,8 +1564,6 @@ impl MultivariateTpeSampler {
         bad_indices: &[usize],
         rng: &mut rand::rngs::StdRng,
     ) -> usize {
-        use rand::Rng;
-
         // Count occurrences in good and bad groups
         let mut good_counts = vec![0usize; n_choices];
         let mut bad_counts = vec![0usize; n_choices];
@@ -2076,7 +2070,7 @@ impl MultivariateTpeSamplerBuilder {
 
         let rng = match self.seed {
             Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_os_rng(),
+            None => rand::make_rng(),
         };
 
         Ok(MultivariateTpeSampler {

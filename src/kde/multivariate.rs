@@ -5,7 +5,7 @@
 //! parameter independently, the multivariate KDE models the joint distribution
 //! to better capture correlations between parameters.
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::error::{Error, Result};
 

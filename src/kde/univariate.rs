@@ -3,7 +3,7 @@
 //! This module provides a Gaussian kernel density estimator used by the TPE
 //! sampler to model probability distributions over good and bad trial regions.
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::error::{Error, Result};
 

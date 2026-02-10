@@ -2,7 +2,7 @@
 
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 use crate::distribution::Distribution;
 use crate::param::ParamValue;
@@ -34,7 +34,7 @@ impl RandomSampler {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            rng: Mutex::new(StdRng::from_os_rng()),
+            rng: Mutex::new(rand::make_rng()),
         }
     }
 
