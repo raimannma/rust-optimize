@@ -19,6 +19,7 @@
 //! - **Grid Search** - Exhaustive search over a specified parameter grid
 //! - **Sobol (QMC)** - Quasi-random sampling for better space coverage (requires `sobol` feature)
 //! - **CMA-ES** - Covariance Matrix Adaptation Evolution Strategy for continuous optimization (requires `cma-es` feature)
+//! - **GP** - Gaussian Process Bayesian optimization with Expected Improvement (requires `gp` feature)
 //! - **BOHB** - Bayesian Optimization + `HyperBand` for budget-aware TPE sampling
 //! - **NSGA-II** - Non-dominated Sorting Genetic Algorithm II for multi-objective optimization
 //! - **MOTPE** - Multi-Objective Tree-Parzen Estimator for Bayesian multi-objective optimization
@@ -190,6 +191,7 @@
 //! - `serde`: Enable `Serialize`/`Deserialize` on public types and `Study::save()`/`Study::load()`
 //! - `sobol`: Enable the Sobol quasi-random sampler for better space coverage
 //! - `cma-es`: Enable the CMA-ES sampler for continuous optimization
+//! - `gp`: Enable the Gaussian Process sampler for Bayesian optimization
 //! - `visualization`: Generate self-contained HTML reports with interactive Plotly.js charts
 //! - `tracing`: Emit structured log events via the [`tracing`](https://docs.rs/tracing) crate at key optimization points
 
@@ -253,6 +255,8 @@ pub use sampler::CompletedTrial;
 pub use sampler::bohb::BohbSampler;
 #[cfg(feature = "cma-es")]
 pub use sampler::cma_es::CmaEsSampler;
+#[cfg(feature = "gp")]
+pub use sampler::gp::GpSampler;
 pub use sampler::grid::GridSearchSampler;
 pub use sampler::motpe::MotpeSampler;
 pub use sampler::nsga2::Nsga2Sampler;
@@ -293,6 +297,8 @@ pub mod prelude {
     pub use crate::sampler::bohb::BohbSampler;
     #[cfg(feature = "cma-es")]
     pub use crate::sampler::cma_es::CmaEsSampler;
+    #[cfg(feature = "gp")]
+    pub use crate::sampler::gp::GpSampler;
     pub use crate::sampler::grid::GridSearchSampler;
     pub use crate::sampler::motpe::MotpeSampler;
     pub use crate::sampler::nsga2::Nsga2Sampler;
