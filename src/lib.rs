@@ -257,7 +257,9 @@ pub use sampler::CompletedTrial;
 pub use sampler::bohb::BohbSampler;
 #[cfg(feature = "cma-es")]
 pub use sampler::cma_es::CmaEsSampler;
-pub use sampler::de::{DeSampler, DeStrategy};
+pub use sampler::differential_evolution::{
+    DifferentialEvolutionSampler, DifferentialEvolutionStrategy,
+};
 #[cfg(feature = "gp")]
 pub use sampler::gp::GpSampler;
 pub use sampler::grid::GridSearchSampler;
@@ -300,7 +302,9 @@ pub mod prelude {
     pub use crate::sampler::bohb::BohbSampler;
     #[cfg(feature = "cma-es")]
     pub use crate::sampler::cma_es::CmaEsSampler;
-    pub use crate::sampler::de::{DeSampler, DeStrategy};
+    pub use crate::sampler::differential_evolution::{
+        DifferentialEvolutionSampler, DifferentialEvolutionStrategy,
+    };
     #[cfg(feature = "gp")]
     pub use crate::sampler::gp::GpSampler;
     pub use crate::sampler::grid::GridSearchSampler;

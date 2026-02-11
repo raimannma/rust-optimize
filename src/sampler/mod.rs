@@ -3,7 +3,7 @@
 pub mod bohb;
 #[cfg(feature = "cma-es")]
 pub mod cma_es;
-pub mod de;
+pub mod differential_evolution;
 #[cfg(feature = "gp")]
 pub mod gp;
 pub mod grid;

@@ -12,10 +12,10 @@
 //! # Examples
 //!
 //! ```
-//! use optimizer::sampler::de::DeSampler;
+//! use optimizer::sampler::differential_evolution::DifferentialEvolutionSampler;
 //! use optimizer::{Direction, Study};
 //!
-//! let sampler = DeSampler::with_seed(42);
+//! let sampler = DifferentialEvolutionSampler::with_seed(42);
 //! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 //! ```
 
@@ -32,7 +32,7 @@ use crate::sampler::{CompletedTrial, Sampler};
 ///
 /// Controls how mutant vectors are created from the current population.
 #[derive(Clone, Copy, Debug, Default)]
-pub enum DeStrategy {
+pub enum DifferentialEvolutionStrategy {
     /// DE/rand/1: `v = x_r1 + F * (x_r2 - x_r3)`
     ///
     /// The most robust strategy. Uses three random population members.
@@ -57,36 +57,46 @@ pub enum DeStrategy {
 /// # Examples
 ///
 /// ```
-/// use optimizer::sampler::de::DeSampler;
+/// use optimizer::sampler::differential_evolution::DifferentialEvolutionSampler;
 /// use optimizer::{Direction, Study};
 ///
 /// // Default configuration
-/// let study: Study<f64> = Study::with_sampler(Direction::Minimize, DeSampler::new());
+/// let study: Study<f64> =
+///     Study::with_sampler(Direction::Minimize, DifferentialEvolutionSampler::new());
 ///
 /// // With seed for reproducibility
-/// let study: Study<f64> = Study::with_sampler(Direction::Minimize, DeSampler::with_seed(42));
+/// let study: Study<f64> = Study::with_sampler(
+///     Direction::Minimize,
+///     DifferentialEvolutionSampler::with_seed(42),
+/// );
 ///
 /// // Custom configuration via builder
-/// use optimizer::sampler::de::DeStrategy;
-/// let sampler = DeSampler::builder()
+/// use optimizer::sampler::differential_evolution::DifferentialEvolutionStrategy;
+/// let sampler = DifferentialEvolutionSampler::builder()
 ///     .mutation_factor(0.8)
 ///     .crossover_rate(0.9)
-///     .strategy(DeStrategy::Best1)
+///     .strategy(DifferentialEvolutionStrategy::Best1)
 ///     .population_size(30)
 ///     .seed(42)
 ///     .build();
 /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 /// ```
-pub struct DeSampler {
-    state: Mutex<DeState>,
+pub struct DifferentialEvolutionSampler {
+    state: Mutex<State>,
 }
 
-impl DeSampler {
+impl DifferentialEvolutionSampler {
     /// Creates a new DE sampler with default settings and a random seed.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(DeState::new(None, 0.8, 0.9, DeStrategy::Rand1, None)),
+            state: Mutex::new(State::new(
+                None,
+                0.8,
+                0.9,
+                DifferentialEvolutionStrategy::Rand1,
+                None,
+            )),
         }
     }
 
@@ -94,24 +104,30 @@ impl DeSampler {
     #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         Self {
-            state: Mutex::new(DeState::new(None, 0.8, 0.9, DeStrategy::Rand1, Some(seed))),
+            state: Mutex::new(State::new(
+                None,
+                0.8,
+                0.9,
+                DifferentialEvolutionStrategy::Rand1,
+                Some(seed),
+            )),
         }
     }
 
-    /// Creates a builder for configuring a `DeSampler`.
+    /// Creates a builder for configuring a `DifferentialEvolutionSampler`.
     #[must_use]
-    pub fn builder() -> DeSamplerBuilder {
-        DeSamplerBuilder::new()
+    pub fn builder() -> DifferentialEvolutionSamplerBuilder {
+        DifferentialEvolutionSamplerBuilder::new()
     }
 }
 
-impl Default for DeSampler {
+impl Default for DifferentialEvolutionSampler {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Builder for configuring a [`DeSampler`].
+/// Builder for configuring a [`DifferentialEvolutionSampler`].
 ///
 /// All options have sensible defaults:
 /// - `population_size`: `max(10 * n_dims, 15)` (auto-computed from parameter count)
@@ -123,32 +139,34 @@ impl Default for DeSampler {
 /// # Examples
 ///
 /// ```
-/// use optimizer::sampler::de::{DeSamplerBuilder, DeStrategy};
+/// use optimizer::sampler::differential_evolution::{
+///     DifferentialEvolutionSamplerBuilder, DifferentialEvolutionStrategy,
+/// };
 ///
-/// let sampler = DeSamplerBuilder::new()
+/// let sampler = DifferentialEvolutionSamplerBuilder::new()
 ///     .mutation_factor(0.5)
 ///     .crossover_rate(0.7)
-///     .strategy(DeStrategy::CurrentToBest1)
+///     .strategy(DifferentialEvolutionStrategy::CurrentToBest1)
 ///     .population_size(20)
 ///     .seed(42)
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
-pub struct DeSamplerBuilder {
+pub struct DifferentialEvolutionSamplerBuilder {
     population_size: Option<usize>,
     mutation_factor: f64,
     crossover_rate: f64,
-    strategy: DeStrategy,
+    strategy: DifferentialEvolutionStrategy,
     seed: Option<u64>,
 }
 
-impl Default for DeSamplerBuilder {
+impl Default for DifferentialEvolutionSamplerBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DeSamplerBuilder {
+impl DifferentialEvolutionSamplerBuilder {
     /// Creates a new builder with default settings.
     #[must_use]
     pub fn new() -> Self {
@@ -156,7 +174,7 @@ impl DeSamplerBuilder {
             population_size: None,
             mutation_factor: 0.8,
             crossover_rate: 0.9,
-            strategy: DeStrategy::Rand1,
+            strategy: DifferentialEvolutionStrategy::Rand1,
             seed: None,
         }
     }
@@ -201,9 +219,9 @@ impl DeSamplerBuilder {
 
     /// Sets the mutation strategy.
     ///
-    /// Default: [`DeStrategy::Rand1`].
+    /// Default: [`DifferentialEvolutionStrategy::Rand1`].
     #[must_use]
-    pub fn strategy(mut self, strategy: DeStrategy) -> Self {
+    pub fn strategy(mut self, strategy: DifferentialEvolutionStrategy) -> Self {
         self.strategy = strategy;
         self
     }
@@ -215,11 +233,11 @@ impl DeSamplerBuilder {
         self
     }
 
-    /// Builds the configured [`DeSampler`].
+    /// Builds the configured [`DifferentialEvolutionSampler`].
     #[must_use]
-    pub fn build(self) -> DeSampler {
-        DeSampler {
-            state: Mutex::new(DeState::new(
+    pub fn build(self) -> DifferentialEvolutionSampler {
+        DifferentialEvolutionSampler {
+            state: Mutex::new(State::new(
                 self.population_size,
                 self.mutation_factor,
                 self.crossover_rate,
@@ -248,7 +266,7 @@ struct DimensionInfo {
 
 /// A candidate solution produced by mutation + crossover.
 #[derive(Clone, Debug)]
-struct DeCandidate {
+struct Candidate {
     /// Internal-space vector (only continuous dimensions).
     x: Vec<f64>,
     /// Values for categorical dimensions (index in `dimensions` -> categorical index).
@@ -267,7 +285,7 @@ struct TrialProgress {
 }
 
 /// Phase of the DE state machine.
-enum DePhase {
+enum Phase {
     /// Discovering the search space structure (first trial).
     Discovery,
     /// Active sampling and evolving.
@@ -275,7 +293,7 @@ enum DePhase {
 }
 
 /// Top-level mutable state behind the `Mutex`.
-struct DeState {
+struct State {
     /// The RNG used for sampling.
     rng: fastrand::Rng,
     /// User-provided population size (None = auto).
@@ -285,9 +303,9 @@ struct DeState {
     /// Crossover rate (CR).
     crossover_rate: f64,
     /// Mutation strategy.
-    strategy: DeStrategy,
+    strategy: DifferentialEvolutionStrategy,
     /// Current phase.
-    phase: DePhase,
+    phase: Phase,
     /// Discovered dimension info (populated during discovery).
     dimensions: Vec<DimensionInfo>,
     /// Last `trial_id` seen during discovery.
@@ -309,7 +327,7 @@ struct DeState {
 
     // --- Current generation ---
     /// Current generation's candidates.
-    candidates: Vec<DeCandidate>,
+    candidates: Vec<Candidate>,
     /// Mapping from `trial_id` to its progress.
     trial_progress: HashMap<u64, TrialProgress>,
     /// Number of candidates assigned so far in the current generation.
@@ -318,12 +336,12 @@ struct DeState {
     generation_trial_ids: Vec<u64>,
 }
 
-impl DeState {
+impl State {
     fn new(
         user_population_size: Option<usize>,
         mutation_factor: f64,
         crossover_rate: f64,
-        strategy: DeStrategy,
+        strategy: DifferentialEvolutionStrategy,
         seed: Option<u64>,
     ) -> Self {
         let rng = seed.map_or_else(fastrand::Rng::new, fastrand::Rng::with_seed);
@@ -333,7 +351,7 @@ impl DeState {
             mutation_factor,
             crossover_rate,
             strategy,
-            phase: DePhase::Discovery,
+            phase: Phase::Discovery,
             dimensions: Vec::new(),
             discovery_trial_id: None,
             population: Vec::new(),
@@ -457,28 +475,6 @@ fn clamp_to_bounds(value: f64, bounds: Option<(f64, f64)>) -> f64 {
     }
 }
 
-/// Convert a `ParamValue` to its internal-space representation.
-#[allow(dead_code, clippy::cast_precision_loss)]
-fn to_internal(value: &ParamValue, distribution: &Distribution) -> f64 {
-    match (value, distribution) {
-        (ParamValue::Float(v), Distribution::Float(d)) => {
-            if d.log_scale {
-                v.ln()
-            } else {
-                *v
-            }
-        }
-        (ParamValue::Int(v), Distribution::Int(d)) => {
-            if d.log_scale {
-                (*v as f64).ln()
-            } else {
-                *v as f64
-            }
-        }
-        _ => unreachable!("to_internal: mismatched value and distribution"),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // DE algorithm
 // ---------------------------------------------------------------------------
@@ -500,62 +496,8 @@ fn select_random_indices(
     selected
 }
 
-/// Create a mutant vector using the specified DE strategy.
-#[allow(dead_code)]
-fn create_mutant(state: &DeState, target_idx: usize, n_continuous: usize) -> Vec<f64> {
-    // We need to work with a mutable reference to state for the rng,
-    // but this function is called from a context where state is already mutable.
-    // So we'll take the necessary data and return the result.
-    let pop = &state.population;
-    let best = &state.population[state.best_idx];
-
-    match state.strategy {
-        DeStrategy::Rand1 => {
-            let indices = select_random_indices(
-                &mut state.rng.clone(),
-                state.population_size,
-                3,
-                &[target_idx],
-            );
-            let (r1, r2, r3) = (indices[0], indices[1], indices[2]);
-            (0..n_continuous)
-                .map(|j| pop[r1][j] + state.mutation_factor * (pop[r2][j] - pop[r3][j]))
-                .collect()
-        }
-        DeStrategy::Best1 => {
-            let indices = select_random_indices(
-                &mut state.rng.clone(),
-                state.population_size,
-                2,
-                &[target_idx],
-            );
-            let (r1, r2) = (indices[0], indices[1]);
-            (0..n_continuous)
-                .map(|j| best[j] + state.mutation_factor * (pop[r1][j] - pop[r2][j]))
-                .collect()
-        }
-        DeStrategy::CurrentToBest1 => {
-            let indices = select_random_indices(
-                &mut state.rng.clone(),
-                state.population_size,
-                2,
-                &[target_idx],
-            );
-            let (r1, r2) = (indices[0], indices[1]);
-            let target = &pop[target_idx];
-            (0..n_continuous)
-                .map(|j| {
-                    target[j]
-                        + state.mutation_factor * (best[j] - target[j])
-                        + state.mutation_factor * (pop[r1][j] - pop[r2][j])
-                })
-                .collect()
-        }
-    }
-}
-
 /// Generate trial vectors (mutation + crossover) for the current population.
-fn generate_trial_vectors(state: &mut DeState) -> Vec<DeCandidate> {
+fn generate_trial_vectors(state: &mut State) -> Vec<Candidate> {
     let n_continuous = state.dimensions.iter().filter(|d| d.is_continuous).count();
     let pop_size = state.population_size;
 
@@ -595,7 +537,7 @@ fn generate_trial_vectors(state: &mut DeState) -> Vec<DeCandidate> {
             }
         }
 
-        candidates.push(DeCandidate {
+        candidates.push(Candidate {
             x: trial_x,
             categorical_values,
             target_idx: i,
@@ -606,7 +548,7 @@ fn generate_trial_vectors(state: &mut DeState) -> Vec<DeCandidate> {
 }
 
 /// Create a mutant vector, consuming RNG from state.
-fn create_mutant_with_rng(state: &mut DeState, target_idx: usize, n_continuous: usize) -> Vec<f64> {
+fn create_mutant_with_rng(state: &mut State, target_idx: usize, n_continuous: usize) -> Vec<f64> {
     if n_continuous == 0 {
         return Vec::new();
     }
@@ -617,21 +559,21 @@ fn create_mutant_with_rng(state: &mut DeState, target_idx: usize, n_continuous: 
     let pop_size = state.population_size;
 
     match state.strategy {
-        DeStrategy::Rand1 => {
+        DifferentialEvolutionStrategy::Rand1 => {
             let indices = select_random_indices(&mut state.rng, pop_size, 3, &[target_idx]);
             let (r1, r2, r3) = (indices[0], indices[1], indices[2]);
             (0..n_continuous)
                 .map(|j| pop[r1][j] + f * (pop[r2][j] - pop[r3][j]))
                 .collect()
         }
-        DeStrategy::Best1 => {
+        DifferentialEvolutionStrategy::Best1 => {
             let indices = select_random_indices(&mut state.rng, pop_size, 2, &[target_idx]);
             let (r1, r2) = (indices[0], indices[1]);
             (0..n_continuous)
                 .map(|j| pop[best_idx][j] + f * (pop[r1][j] - pop[r2][j]))
                 .collect()
         }
-        DeStrategy::CurrentToBest1 => {
+        DifferentialEvolutionStrategy::CurrentToBest1 => {
             let indices = select_random_indices(&mut state.rng, pop_size, 2, &[target_idx]);
             let (r1, r2) = (indices[0], indices[1]);
             (0..n_continuous)
@@ -663,7 +605,7 @@ fn continuous_dim_bounds(
 }
 
 /// Generate the initial random population.
-fn generate_initial_population(state: &mut DeState) -> Vec<DeCandidate> {
+fn generate_initial_population(state: &mut State) -> Vec<Candidate> {
     let n_continuous = state.dimensions.iter().filter(|d| d.is_continuous).count();
 
     let mut candidates = Vec::with_capacity(state.population_size);
@@ -671,7 +613,6 @@ fn generate_initial_population(state: &mut DeState) -> Vec<DeCandidate> {
     for i in 0..state.population_size {
         let x: Vec<f64> = if n_continuous > 0 {
             let mut v = Vec::with_capacity(n_continuous);
-            let mut ci = 0;
             for dim in &state.dimensions {
                 if dim.is_continuous {
                     let val = if let Some(bounds) = dim.bounds {
@@ -680,10 +621,8 @@ fn generate_initial_population(state: &mut DeState) -> Vec<DeCandidate> {
                         0.0
                     };
                     v.push(val);
-                    ci += 1;
                 }
             }
-            let _ = ci;
             v
         } else {
             Vec::new()
@@ -698,7 +637,7 @@ fn generate_initial_population(state: &mut DeState) -> Vec<DeCandidate> {
             }
         }
 
-        candidates.push(DeCandidate {
+        candidates.push(Candidate {
             x,
             categorical_values,
             target_idx: i,
@@ -712,7 +651,7 @@ fn generate_initial_population(state: &mut DeState) -> Vec<DeCandidate> {
 // Sampler trait implementation
 // ---------------------------------------------------------------------------
 
-impl Sampler for DeSampler {
+impl Sampler for DifferentialEvolutionSampler {
     #[allow(clippy::cast_precision_loss)]
     fn sample(
         &self,
@@ -723,14 +662,14 @@ impl Sampler for DeSampler {
         let mut state = self.state.lock();
 
         match &state.phase {
-            DePhase::Discovery => sample_discovery(&mut state, distribution, trial_id),
-            DePhase::Active => sample_active(&mut state, distribution, trial_id, history),
+            Phase::Discovery => sample_discovery(&mut state, distribution, trial_id),
+            Phase::Active => sample_active(&mut state, distribution, trial_id, history),
         }
     }
 }
 
 /// Handle sampling during the discovery phase.
-fn sample_discovery(state: &mut DeState, distribution: &Distribution, trial_id: u64) -> ParamValue {
+fn sample_discovery(state: &mut State, distribution: &Distribution, trial_id: u64) -> ParamValue {
     // Check if this is a new trial (discovery phase ended for previous trial)
     if let Some(prev_id) = state.discovery_trial_id
         && trial_id != prev_id
@@ -758,7 +697,7 @@ fn sample_discovery(state: &mut DeState, distribution: &Distribution, trial_id: 
 
 /// Finalize discovery and transition to the active phase.
 #[allow(clippy::cast_precision_loss)]
-fn finalize_discovery(state: &mut DeState) {
+fn finalize_discovery(state: &mut State) {
     let n_continuous = state.dimensions.iter().filter(|d| d.is_continuous).count();
 
     // Resolve population size
@@ -774,12 +713,12 @@ fn finalize_discovery(state: &mut DeState) {
     state.assigned_count = 0;
     state.generation_trial_ids.clear();
     state.trial_progress.clear();
-    state.phase = DePhase::Active;
+    state.phase = Phase::Active;
 }
 
 /// Handle sampling during the active phase.
 fn sample_active(
-    state: &mut DeState,
+    state: &mut State,
     distribution: &Distribution,
     trial_id: u64,
     history: &[CompletedTrial],
@@ -826,7 +765,7 @@ fn sample_active(
 }
 
 /// Assign a candidate to a trial.
-fn assign_candidate(state: &mut DeState, trial_id: u64) {
+fn assign_candidate(state: &mut State, trial_id: u64) {
     let candidate_idx = if state.assigned_count < state.candidates.len() {
         let idx = state.assigned_count;
         state.assigned_count += 1;
@@ -852,7 +791,7 @@ fn assign_candidate(state: &mut DeState, trial_id: u64) {
                 categorical_values.insert(dim_idx, state.rng.usize(0..cat.n_choices));
             }
         }
-        state.candidates.push(DeCandidate {
+        state.candidates.push(Candidate {
             x,
             categorical_values,
             target_idx: 0, // overflow candidates don't compete
@@ -873,7 +812,7 @@ fn assign_candidate(state: &mut DeState, trial_id: u64) {
 }
 
 /// Check if we should process completed trials and start a new generation.
-fn maybe_update_generation(state: &mut DeState, history: &[CompletedTrial]) {
+fn maybe_update_generation(state: &mut State, history: &[CompletedTrial]) {
     let pop_size = state.population_size;
 
     // Only update when at least pop_size candidates have been assigned
@@ -918,7 +857,7 @@ fn maybe_update_generation(state: &mut DeState, history: &[CompletedTrial]) {
 
 /// Initialize the population from the first generation's results.
 fn initialize_population(
-    state: &mut DeState,
+    state: &mut State,
     trial_ids: &[u64],
     history_map: &HashMap<u64, f64>,
     _n_continuous: usize,
@@ -952,7 +891,7 @@ fn initialize_population(
 }
 
 /// Perform DE selection: replace parent if trial vector is better.
-fn perform_selection(state: &mut DeState, trial_ids: &[u64], history_map: &HashMap<u64, f64>) {
+fn perform_selection(state: &mut State, trial_ids: &[u64], history_map: &HashMap<u64, f64>) {
     for &trial_id in trial_ids {
         let progress = &state.trial_progress[&trial_id];
         let candidate = &state.candidates[progress.candidate_idx];
@@ -987,7 +926,7 @@ mod tests {
 
     #[test]
     fn test_de_sampler_basic_float() {
-        let sampler = DeSampler::with_seed(42);
+        let sampler = DifferentialEvolutionSampler::with_seed(42);
         let dist = Distribution::Float(FloatDistribution {
             low: -5.0,
             high: 5.0,
@@ -1019,7 +958,7 @@ mod tests {
         });
 
         let sample_values = |seed: u64| {
-            let sampler = DeSampler::with_seed(seed);
+            let sampler = DifferentialEvolutionSampler::with_seed(seed);
             (0..20)
                 .map(|i| sampler.sample(&dist, i, &[]))
                 .collect::<Vec<_>>()
@@ -1035,16 +974,22 @@ mod tests {
 
     #[test]
     fn test_de_strategy_default() {
-        assert!(matches!(DeStrategy::default(), DeStrategy::Rand1));
+        assert!(matches!(
+            DifferentialEvolutionStrategy::default(),
+            DifferentialEvolutionStrategy::Rand1
+        ));
     }
 
     #[test]
     fn test_builder_defaults() {
-        let builder = DeSamplerBuilder::new();
+        let builder = DifferentialEvolutionSamplerBuilder::new();
         assert!(builder.population_size.is_none());
         assert!((builder.mutation_factor - 0.8).abs() < f64::EPSILON);
         assert!((builder.crossover_rate - 0.9).abs() < f64::EPSILON);
-        assert!(matches!(builder.strategy, DeStrategy::Rand1));
+        assert!(matches!(
+            builder.strategy,
+            DifferentialEvolutionStrategy::Rand1
+        ));
         assert!(builder.seed.is_none());
     }
 }
