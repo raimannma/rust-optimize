@@ -219,6 +219,11 @@ impl Trial {
         self.state = TrialState::Failed;
     }
 
+    /// Sets the trial state to Pruned.
+    pub(crate) fn set_pruned(&mut self) {
+        self.state = TrialState::Pruned;
+    }
+
     /// Suggests a parameter value using a [`Parameter`] definition.
     ///
     /// This is the primary entry point for sampling parameters. It handles

@@ -194,7 +194,7 @@ mod study;
 mod trial;
 mod types;
 
-pub use error::{Error, Result};
+pub use error::{Error, Result, TrialPruned};
 #[cfg(feature = "derive")]
 pub use optimizer_derive::Categorical;
 pub use param::ParamValue;
@@ -219,7 +219,7 @@ pub mod prelude {
     #[cfg(feature = "derive")]
     pub use optimizer_derive::Categorical as DeriveCategory;
 
-    pub use crate::error::{Error, Result};
+    pub use crate::error::{Error, Result, TrialPruned};
     pub use crate::param::ParamValue;
     pub use crate::parameter::{
         BoolParam, Categorical, CategoricalParam, EnumParam, FloatParam, IntParam, Parameter,

@@ -18,4 +18,6 @@ pub enum TrialState {
     Complete,
     /// The trial failed with an error.
     Failed,
+    /// The trial was pruned (stopped early).
+    Pruned,
 }

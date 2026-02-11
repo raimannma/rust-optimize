@@ -13,7 +13,7 @@ use crate::pruner::{NopPruner, Pruner};
 use crate::sampler::random::RandomSampler;
 use crate::sampler::{CompletedTrial, Sampler};
 use crate::trial::Trial;
-use crate::types::Direction;
+use crate::types::{Direction, TrialState};
 
 /// A study manages the optimization process, tracking trials and their results.
 ///
@@ -304,7 +304,7 @@ where
     /// ```
     pub fn complete_trial(&self, mut trial: Trial, value: V) {
         trial.set_complete();
-        let completed = CompletedTrial::with_intermediate_values(
+        let mut completed = CompletedTrial::with_intermediate_values(
             trial.id(),
             trial.params().clone(),
             trial.distributions().clone(),
@@ -312,6 +312,7 @@ where
             value,
             trial.intermediate_values().to_vec(),
         );
+        completed.state = TrialState::Complete;
         self.completed_trials.write().push(completed);
     }
 
@@ -343,6 +344,32 @@ where
         trial.set_failed();
         // Failed trials are not stored in completed_trials
         // They could be stored in a separate list for debugging if needed
+    }
+
+    /// Records a pruned trial, preserving its intermediate values.
+    ///
+    /// Pruned trials are stored alongside completed trials so that samplers
+    /// can optionally learn from partial evaluations. The trial's state is
+    /// set to `Pruned`.
+    ///
+    /// # Arguments
+    ///
+    /// * `trial` - The trial that was pruned.
+    pub fn prune_trial(&self, mut trial: Trial)
+    where
+        V: Default,
+    {
+        trial.set_pruned();
+        let mut completed = CompletedTrial::with_intermediate_values(
+            trial.id(),
+            trial.params().clone(),
+            trial.distributions().clone(),
+            trial.param_labels().clone(),
+            V::default(),
+            trial.intermediate_values().to_vec(),
+        );
+        completed.state = TrialState::Pruned;
+        self.completed_trials.write().push(completed);
     }
 
     /// Returns an iterator over all completed trials.
@@ -399,6 +426,15 @@ where
         self.completed_trials.read().len()
     }
 
+    /// Returns the number of pruned trials.
+    pub fn n_pruned_trials(&self) -> usize {
+        self.completed_trials
+            .read()
+            .iter()
+            .filter(|t| t.state == TrialState::Pruned)
+            .count()
+    }
+
     /// Returns the trial with the best objective value.
     ///
     /// The "best" trial depends on the optimization direction:
@@ -439,12 +475,9 @@ where
     {
         let trials = self.completed_trials.read();
 
-        if trials.is_empty() {
-            return Err(crate::Error::NoCompletedTrials);
-        }
-
         let best = trials
             .iter()
+            .filter(|t| t.state == TrialState::Complete)
             .max_by(|a, b| {
                 // For Minimize, we want the smallest value to be "max" in ordering
                 // For Maximize, we want the largest value to be "max" in ordering
@@ -555,7 +588,8 @@ where
     pub fn optimize<F, E>(&self, n_trials: usize, mut objective: F) -> crate::Result<()>
     where
         F: FnMut(&mut Trial) -> core::result::Result<V, E>,
-        E: ToString,
+        E: ToString + 'static,
+        V: Default,
     {
         for _ in 0..n_trials {
             let mut trial = self.create_trial();
@@ -565,13 +599,22 @@ where
                     self.complete_trial(trial, value);
                 }
                 Err(e) => {
-                    self.fail_trial(trial, e.to_string());
+                    if is_trial_pruned(&e) {
+                        self.prune_trial(trial);
+                    } else {
+                        self.fail_trial(trial, e.to_string());
+                    }
                 }
             }
         }
 
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
+        // Return error if no trials completed successfully
+        let has_complete = self
+            .completed_trials
+            .read()
+            .iter()
+            .any(|t| t.state == TrialState::Complete);
+        if !has_complete {
             return Err(crate::Error::NoCompletedTrials);
         }
 
@@ -656,8 +699,13 @@ where
             }
         }
 
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
+        // Return error if no trials completed successfully
+        let has_complete = self
+            .completed_trials
+            .read()
+            .iter()
+            .any(|t| t.state == TrialState::Complete);
+        if !has_complete {
             return Err(crate::Error::NoCompletedTrials);
         }
 
@@ -771,8 +819,13 @@ where
             }
         }
 
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
+        // Return error if no trials completed successfully
+        let has_complete = self
+            .completed_trials
+            .read()
+            .iter()
+            .any(|t| t.state == TrialState::Complete);
+        if !has_complete {
             return Err(crate::Error::NoCompletedTrials);
         }
 
@@ -843,10 +896,10 @@ where
         mut callback: C,
     ) -> crate::Result<()>
     where
-        V: Clone,
+        V: Clone + Default,
         F: FnMut(&mut Trial) -> core::result::Result<V, E>,
         C: FnMut(&Study<V>, &CompletedTrial<V>) -> ControlFlow<()>,
-        E: ToString,
+        E: ToString + 'static,
     {
         for _ in 0..n_trials {
             let mut trial = self.create_trial();
@@ -874,13 +927,22 @@ where
                     }
                 }
                 Err(e) => {
-                    self.fail_trial(trial, e.to_string());
+                    if is_trial_pruned(&e) {
+                        self.prune_trial(trial);
+                    } else {
+                        self.fail_trial(trial, e.to_string());
+                    }
                 }
             }
         }
 
-        // Return error if no trials succeeded
-        if self.n_trials() == 0 {
+        // Return error if no trials completed successfully
+        let has_complete = self
+            .completed_trials
+            .read()
+            .iter()
+            .any(|t| t.state == TrialState::Complete);
+        if !has_complete {
             return Err(crate::Error::NoCompletedTrials);
         }
 
@@ -918,7 +980,7 @@ impl Study<f64> {
     pub fn optimize_with_sampler<F, E>(&self, n_trials: usize, objective: F) -> crate::Result<()>
     where
         F: FnMut(&mut Trial) -> core::result::Result<f64, E>,
-        E: ToString,
+        E: ToString + 'static,
     {
         self.optimize(n_trials, objective)
     }
@@ -940,7 +1002,7 @@ impl Study<f64> {
     where
         F: FnMut(&mut Trial) -> core::result::Result<f64, E>,
         C: FnMut(&Study<f64>, &CompletedTrial<f64>) -> ControlFlow<()>,
-        E: ToString,
+        E: ToString + 'static,
     {
         self.optimize_with_callback(n_trials, objective, callback)
     }
@@ -989,5 +1051,18 @@ impl Study<f64> {
     {
         self.optimize_parallel(n_trials, concurrency, objective)
             .await
+    }
+}
+
+/// Returns `true` if the error represents a pruned trial.
+///
+/// Checks via `Any` downcasting whether `e` is `Error::TrialPruned` or
+/// the standalone `TrialPruned` struct.
+fn is_trial_pruned<E: 'static>(e: &E) -> bool {
+    let any: &dyn Any = e;
+    if let Some(err) = any.downcast_ref::<crate::Error>() {
+        matches!(err, crate::Error::TrialPruned)
+    } else {
+        any.downcast_ref::<crate::error::TrialPruned>().is_some()
     }
 }

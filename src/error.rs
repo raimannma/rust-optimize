@@ -72,6 +72,10 @@ pub enum Error {
         got: usize,
     },
 
+    /// Returned when a trial is pruned (stopped early by the objective function).
+    #[error("trial was pruned")]
+    TrialPruned,
+
     /// Returned when an internal invariant is violated.
     #[error("internal error: {0}")]
     Internal(&'static str),
@@ -83,3 +87,33 @@ pub enum Error {
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+/// Convenience type for signalling a pruned trial from an objective function.
+///
+/// Implements `Into<Error>` so it can be used with `?` in objectives that
+/// return `Result<V, Error>`.
+///
+/// # Examples
+///
+/// ```
+/// use optimizer::{Error, TrialPruned};
+///
+/// fn objective_that_prunes() -> Result<f64, Error> {
+///     // ... some computation ...
+///     Err(TrialPruned)?
+/// }
+/// ```
+#[derive(Debug)]
+pub struct TrialPruned;
+
+impl core::fmt::Display for TrialPruned {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "trial was pruned")
+    }
+}
+
+impl From<TrialPruned> for Error {
+    fn from(_: TrialPruned) -> Self {
+        Error::TrialPruned
+    }
+}

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::distribution::Distribution;
 use crate::param::ParamValue;
 use crate::parameter::{ParamId, Parameter};
+use crate::types::TrialState;
 
 /// A completed trial with its parameters, distributions, and objective value.
 ///
@@ -29,6 +30,8 @@ pub struct CompletedTrial<V = f64> {
     pub value: V,
     /// Intermediate objective values reported during the trial.
     pub intermediate_values: Vec<(u64, f64)>,
+    /// The state of the trial (Complete, Pruned, or Failed).
+    pub state: TrialState,
 }
 
 impl<V> CompletedTrial<V> {
@@ -47,6 +50,7 @@ impl<V> CompletedTrial<V> {
             param_labels,
             value,
             intermediate_values: Vec::new(),
+            state: TrialState::Complete,
         }
     }
 
@@ -66,6 +70,7 @@ impl<V> CompletedTrial<V> {
             param_labels,
             value,
             intermediate_values,
+            state: TrialState::Complete,
         }
     }
 
