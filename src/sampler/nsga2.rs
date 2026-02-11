@@ -432,7 +432,7 @@ fn nsga2_select(
     let mut crowding = vec![0.0_f64; n];
 
     for (front_rank, front) in fronts.iter().enumerate() {
-        let cd = pareto::crowding_distance(front, &values);
+        let cd = pareto::crowding_distance_indexed(front, &values);
         for (i, &idx) in front.iter().enumerate() {
             rank[idx] = front_rank;
             crowding[idx] = cd[i];

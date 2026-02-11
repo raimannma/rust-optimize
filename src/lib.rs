@@ -223,7 +223,7 @@ mod kde;
 pub mod multi_objective;
 mod param;
 pub mod parameter;
-mod pareto;
+pub mod pareto;
 pub mod pruner;
 pub mod sampler;
 mod study;

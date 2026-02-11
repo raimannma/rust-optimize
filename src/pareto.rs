@@ -1,8 +1,15 @@
-//! Pareto dominance utilities for multi-objective optimization.
+//! Pareto front analysis utilities for multi-objective optimization.
 //!
-//! Provides fast non-dominated sorting (Deb et al., 2002) and crowding
-//! distance computation used by both `MultiObjectiveStudy::pareto_front()`
-//! and `Nsga2Sampler`.
+//! Provides functions for analyzing and working with Pareto fronts:
+//!
+//! - [`hypervolume`] — measure the quality of a Pareto front
+//! - [`non_dominated_sort`] — rank solutions into successive fronts
+//! - [`pareto_front_indices`] — filter to non-dominated solutions only
+//! - [`crowding_distance`] — measure diversity within a front
+//!
+//! Internally also provides fast non-dominated sorting (Deb et al., 2002)
+//! used by [`MultiObjectiveStudy::pareto_front()`](crate::MultiObjectiveStudy::pareto_front)
+//! and [`Nsga2Sampler`](crate::Nsga2Sampler).
 
 use crate::types::Direction;
 
@@ -145,12 +152,12 @@ pub(crate) fn fast_non_dominated_sort_constrained(
     fronts
 }
 
-/// Crowding distance for one front.
+/// Crowding distance for one front (index-based, internal API).
 ///
 /// Boundary solutions get `f64::INFINITY`. Returns one distance value per
 /// solution in the front, in the same order as `front_indices`.
 #[allow(clippy::cast_precision_loss)]
-pub(crate) fn crowding_distance(front_indices: &[usize], values: &[Vec<f64>]) -> Vec<f64> {
+pub(crate) fn crowding_distance_indexed(front_indices: &[usize], values: &[Vec<f64>]) -> Vec<f64> {
     let n = front_indices.len();
     if n <= 2 {
         return vec![f64::INFINITY; n];
@@ -179,6 +186,223 @@ pub(crate) fn crowding_distance(front_indices: &[usize], values: &[Vec<f64>]) ->
         if range > 0.0 {
             for i in 1..(n - 1) {
                 distances[sorted[i]] += (val(sorted[i + 1], obj) - val(sorted[i - 1], obj)) / range;
+            }
+        }
+    }
+
+    distances
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Compute the hypervolume indicator of a Pareto front.
+///
+/// The hypervolume is the volume of the objective space dominated by
+/// the Pareto front and bounded by a reference point. Higher values
+/// indicate a better front.
+///
+/// Each entry in `front` is one solution's objective values.
+/// `reference_point` should be worse than all front members in every
+/// objective (e.g., the worst acceptable values).
+///
+/// # Panics
+///
+/// Panics (in debug) if dimensions of `front`, `reference_point`, and
+/// `directions` are inconsistent.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn hypervolume(front: &[Vec<f64>], reference_point: &[f64], directions: &[Direction]) -> f64 {
+    if front.is_empty() {
+        return 0.0;
+    }
+    let d = reference_point.len();
+    debug_assert!(front.iter().all(|p| p.len() == d));
+    debug_assert_eq!(d, directions.len());
+
+    // Normalize to minimize-space (negate maximized objectives).
+    let normalized: Vec<Vec<f64>> = front
+        .iter()
+        .map(|p| {
+            p.iter()
+                .zip(directions)
+                .map(|(&v, dir)| match dir {
+                    Direction::Minimize => v,
+                    Direction::Maximize => -v,
+                })
+                .collect()
+        })
+        .collect();
+
+    let ref_norm: Vec<f64> = reference_point
+        .iter()
+        .zip(directions)
+        .map(|(&v, dir)| match dir {
+            Direction::Minimize => v,
+            Direction::Maximize => -v,
+        })
+        .collect();
+
+    // Keep only points strictly dominated by the reference point.
+    let filtered: Vec<Vec<f64>> = normalized
+        .into_iter()
+        .filter(|p| p.iter().zip(&ref_norm).all(|(&pv, &rv)| pv < rv))
+        .collect();
+
+    if filtered.is_empty() {
+        return 0.0;
+    }
+
+    hv_recursive(&filtered, &ref_norm)
+}
+
+/// Recursive hypervolume via slicing on the last objective.
+///
+/// All points are in minimize-space and dominated by `reference`.
+#[allow(clippy::cast_precision_loss)]
+fn hv_recursive(points: &[Vec<f64>], reference: &[f64]) -> f64 {
+    let d = reference.len();
+
+    // Base case: 1-D hypervolume is just the gap from the best point to ref.
+    if d == 1 {
+        let min_val = points.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
+        return (reference[0] - min_val).max(0.0);
+    }
+
+    // Single point: hypervolume is the product of gaps.
+    if points.len() == 1 {
+        return points[0]
+            .iter()
+            .zip(reference)
+            .map(|(&p, &r)| (r - p).max(0.0))
+            .product();
+    }
+
+    // Sort by last objective ascending.
+    let mut sorted: Vec<&Vec<f64>> = points.iter().collect();
+    sorted.sort_by(|a, b| {
+        a[d - 1]
+            .partial_cmp(&b[d - 1])
+            .unwrap_or(core::cmp::Ordering::Equal)
+    });
+
+    let sub_ref: Vec<f64> = reference[..d - 1].to_vec();
+    let mut result = 0.0;
+
+    for i in 0..sorted.len() {
+        let height = if i + 1 < sorted.len() {
+            sorted[i + 1][d - 1] - sorted[i][d - 1]
+        } else {
+            reference[d - 1] - sorted[i][d - 1]
+        };
+
+        if height <= 0.0 {
+            continue;
+        }
+
+        // Project points[0..=i] onto the first d-1 dimensions and
+        // keep only the non-dominated subset.
+        let projected: Vec<Vec<f64>> = sorted[..=i].iter().map(|p| p[..d - 1].to_vec()).collect();
+        let nd = non_dominated_minimize(&projected);
+
+        if !nd.is_empty() {
+            result += height * hv_recursive(&nd, &sub_ref);
+        }
+    }
+
+    result
+}
+
+/// Return the non-dominated subset of `points` in minimize-space.
+fn non_dominated_minimize(points: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let mut result = Vec::new();
+    'outer: for (i, p) in points.iter().enumerate() {
+        for (j, q) in points.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            // Check if q dominates p (all <=, at least one <).
+            let mut all_leq = true;
+            let mut any_lt = false;
+            for (&qv, &pv) in q.iter().zip(p.iter()) {
+                if qv > pv {
+                    all_leq = false;
+                    break;
+                }
+                if qv < pv {
+                    any_lt = true;
+                }
+            }
+            if all_leq && any_lt {
+                continue 'outer;
+            }
+        }
+        result.push(p.clone());
+    }
+    result
+}
+
+/// Compute non-dominated sorting of a set of solutions.
+///
+/// Returns a vec of fronts, where `fronts[0]` is the Pareto front,
+/// `fronts[1]` is the next best, etc. Each inner vec contains indices
+/// into the original `solutions` slice.
+///
+/// Uses the fast non-dominated sorting algorithm from
+/// Deb et al. (2002) with O(M N²) complexity.
+#[must_use]
+pub fn non_dominated_sort(solutions: &[Vec<f64>], directions: &[Direction]) -> Vec<Vec<usize>> {
+    fast_non_dominated_sort(solutions, directions)
+}
+
+/// Filter solutions to return only non-dominated (Pareto-optimal) indices.
+///
+/// Equivalent to `non_dominated_sort(solutions, directions)[0]` but
+/// communicates the intent more clearly.
+#[must_use]
+pub fn pareto_front_indices(solutions: &[Vec<f64>], directions: &[Direction]) -> Vec<usize> {
+    let fronts = fast_non_dominated_sort(solutions, directions);
+    fronts.into_iter().next().unwrap_or_default()
+}
+
+/// Compute crowding distance for diversity measurement.
+///
+/// Returns one distance value per solution in `front` (same order).
+/// Boundary solutions (best/worst in any objective) receive
+/// [`f64::INFINITY`]. Interior solutions get a finite positive value
+/// proportional to the gap between their neighbors.
+///
+/// `directions` is accepted for API consistency but does not affect
+/// the result, since crowding distance measures spacing regardless of
+/// optimization direction.
+#[must_use]
+#[allow(clippy::cast_precision_loss, clippy::needless_range_loop)]
+pub fn crowding_distance(front: &[Vec<f64>], _directions: &[Direction]) -> Vec<f64> {
+    let n = front.len();
+    if n <= 2 {
+        return vec![f64::INFINITY; n];
+    }
+
+    let m = front[0].len();
+    let mut distances = vec![0.0_f64; n];
+
+    for obj in 0..m {
+        let mut sorted: Vec<usize> = (0..n).collect();
+        sorted.sort_by(|&a, &b| {
+            front[a][obj]
+                .partial_cmp(&front[b][obj])
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        distances[sorted[0]] = f64::INFINITY;
+        distances[sorted[n - 1]] = f64::INFINITY;
+
+        let range = front[sorted[n - 1]][obj] - front[sorted[0]][obj];
+        if range > 0.0 {
+            for i in 1..(n - 1) {
+                distances[sorted[i]] +=
+                    (front[sorted[i + 1]][obj] - front[sorted[i - 1]][obj]) / range;
             }
         }
     }
@@ -235,13 +459,135 @@ mod tests {
     }
 
     #[test]
-    fn test_crowding_boundaries() {
+    fn test_crowding_indexed_boundaries() {
         let values = vec![vec![1.0, 5.0], vec![3.0, 3.0], vec![5.0, 1.0]];
         let front = vec![0, 1, 2];
-        let cd = crowding_distance(&front, &values);
+        let cd = crowding_distance_indexed(&front, &values);
         assert!(cd[0].is_infinite());
         assert!(cd[2].is_infinite());
         assert!(cd[1].is_finite());
         assert!(cd[1] > 0.0);
+    }
+
+    // ---- Public API tests ----
+
+    #[test]
+    fn test_hypervolume_2d_minimize() {
+        // Front: (1,3), (2,2), (3,1) with ref (4,4) — all minimize
+        let front = vec![vec![1.0, 3.0], vec![2.0, 2.0], vec![3.0, 1.0]];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let hv = hypervolume(&front, &[4.0, 4.0], &dirs);
+        // Strip 1: x=[1,2), h=4-3=1 → area=1
+        // Strip 2: x=[2,3), h=4-2=2 → area=2
+        // Strip 3: x=[3,4], h=4-1=3 → area=3
+        // Total = 6
+        assert!((hv - 6.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_hypervolume_2d_maximize() {
+        // Front: (3,1), (2,2), (1,3) with ref (0,0) — all maximize
+        let front = vec![vec![3.0, 1.0], vec![2.0, 2.0], vec![1.0, 3.0]];
+        let dirs = [Direction::Maximize, Direction::Maximize];
+        let hv = hypervolume(&front, &[0.0, 0.0], &dirs);
+        // In negate-space: points become (-3,-1),(-2,-2),(-1,-3), ref=(0,0)
+        // Same geometry as minimize test above → area = 6
+        assert!((hv - 6.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_hypervolume_single_point() {
+        let front = vec![vec![1.0, 1.0]];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let hv = hypervolume(&front, &[3.0, 3.0], &dirs);
+        // Rectangle: (3-1) * (3-1) = 4
+        assert!((hv - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_hypervolume_empty_front() {
+        let front: Vec<Vec<f64>> = vec![];
+        let dirs = [Direction::Minimize];
+        assert!(hypervolume(&front, &[1.0], &dirs).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_hypervolume_point_at_ref() {
+        // Point not strictly better than ref → contributes nothing
+        let front = vec![vec![5.0, 5.0]];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let hv = hypervolume(&front, &[5.0, 5.0], &dirs);
+        assert!(hv.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_hypervolume_3d() {
+        // Single point in 3D: (1,1,1) with ref (2,2,2)
+        let front = vec![vec![1.0, 1.0, 1.0]];
+        let dirs = [
+            Direction::Minimize,
+            Direction::Minimize,
+            Direction::Minimize,
+        ];
+        let hv = hypervolume(&front, &[2.0, 2.0, 2.0], &dirs);
+        assert!((hv - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_non_dominated_sort_public() {
+        let values = vec![
+            vec![1.0, 5.0],
+            vec![5.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 4.0],
+        ];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let fronts = non_dominated_sort(&values, &dirs);
+        assert_eq!(fronts.len(), 2);
+        let mut f0 = fronts[0].clone();
+        f0.sort_unstable();
+        assert_eq!(f0, vec![0, 1, 2]);
+        assert_eq!(fronts[1], vec![3]);
+    }
+
+    #[test]
+    fn test_pareto_front_indices_basic() {
+        let values = vec![
+            vec![1.0, 5.0],
+            vec![5.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 4.0],
+        ];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let mut idx = pareto_front_indices(&values, &dirs);
+        idx.sort_unstable();
+        assert_eq!(idx, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_pareto_front_indices_empty() {
+        let values: Vec<Vec<f64>> = vec![];
+        let dirs = [Direction::Minimize];
+        assert!(pareto_front_indices(&values, &dirs).is_empty());
+    }
+
+    #[test]
+    fn test_crowding_distance_public() {
+        let front = vec![vec![1.0, 5.0], vec![3.0, 3.0], vec![5.0, 1.0]];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let cd = crowding_distance(&front, &dirs);
+        assert!(cd[0].is_infinite());
+        assert!(cd[2].is_infinite());
+        assert!(cd[1].is_finite());
+        assert!(cd[1] > 0.0);
+    }
+
+    #[test]
+    fn test_crowding_distance_single_point() {
+        let front = vec![vec![2.0, 3.0]];
+        let dirs = [Direction::Minimize, Direction::Minimize];
+        let cd = crowding_distance(&front, &dirs);
+        assert_eq!(cd.len(), 1);
+        assert!(cd[0].is_infinite());
     }
 }
