@@ -42,11 +42,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        features:
-          - ""
-          - "async"
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust
@@ -55,12 +50,7 @@ jobs:
           rustup update stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            cargo test --verbose
-          else
-            cargo test --verbose --features "${{ matrix.features }}"
-          fi
+        run: cargo test --verbose --all-features --all-targets
 
   examples:
     name: Examples
