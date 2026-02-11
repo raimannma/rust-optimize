@@ -21,6 +21,7 @@
 //! ```
 
 use core::fmt::Debug;
+use core::ops::RangeInclusive;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::distribution::{
@@ -187,6 +188,12 @@ impl FloatParam {
     }
 }
 
+impl From<RangeInclusive<f64>> for FloatParam {
+    fn from(range: RangeInclusive<f64>) -> Self {
+        FloatParam::new(*range.start(), *range.end())
+    }
+}
+
 impl Parameter for FloatParam {
     type Value = f64;
 
@@ -303,6 +310,12 @@ impl IntParam {
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
+    }
+}
+
+impl From<RangeInclusive<i64>> for IntParam {
+    fn from(range: RangeInclusive<i64>) -> Self {
+        IntParam::new(*range.start(), *range.end())
     }
 }
 
@@ -991,5 +1004,35 @@ mod tests {
         let param = FloatParam::new(0.0, 1.0);
         let cloned = param.clone();
         assert_eq!(param.id(), cloned.id());
+    }
+
+    #[test]
+    fn float_param_from_range() {
+        let param = FloatParam::from(0.0..=1.0);
+        assert_eq!(
+            param.distribution(),
+            Distribution::Float(FloatDistribution {
+                low: 0.0,
+                high: 1.0,
+                log_scale: false,
+                step: None,
+            })
+        );
+        assert_eq!(param.label(), format!("{param:?}"));
+    }
+
+    #[test]
+    fn int_param_from_range() {
+        let param = IntParam::from(1..=10);
+        assert_eq!(
+            param.distribution(),
+            Distribution::Int(IntDistribution {
+                low: 1,
+                high: 10,
+                log_scale: false,
+                step: None,
+            })
+        );
+        assert_eq!(param.label(), format!("{param:?}"));
     }
 }
