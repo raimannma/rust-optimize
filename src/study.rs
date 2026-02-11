@@ -1790,6 +1790,31 @@ where
     }
 }
 
+impl<V> Study<V>
+where
+    V: PartialOrd + Clone,
+{
+    /// Returns an iterator over all completed trials.
+    ///
+    /// This clones the internal trial list, so it is suitable for
+    /// analysis and iteration but not for hot paths.
+    pub fn iter(&self) -> std::vec::IntoIter<CompletedTrial<V>> {
+        self.trials().into_iter()
+    }
+}
+
+impl<V> IntoIterator for &Study<V>
+where
+    V: PartialOrd + Clone,
+{
+    type Item = CompletedTrial<V>;
+    type IntoIter = std::vec::IntoIter<CompletedTrial<V>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<V> fmt::Display for Study<V>
 where
     V: PartialOrd + Clone + fmt::Display,
