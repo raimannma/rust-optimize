@@ -15,6 +15,7 @@ use crate::types::TrialState;
 
 /// A user attribute value that can be stored on a trial.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AttrValue {
     /// A floating-point attribute.
     Float(f64),

@@ -182,6 +182,7 @@
 //!
 //! - `async`: Enable async optimization methods (requires tokio)
 //! - `derive`: Enable `#[derive(Categorical)]` for enum parameters
+//! - `serde`: Enable `Serialize`/`Deserialize` on public types and `Study::save()`/`Study::load()`
 
 mod distribution;
 mod error;
@@ -210,6 +211,8 @@ pub use sampler::grid::GridSearchSampler;
 pub use sampler::random::RandomSampler;
 pub use sampler::tpe::TpeSampler;
 pub use study::Study;
+#[cfg(feature = "serde")]
+pub use study::StudySnapshot;
 pub use trial::{AttrValue, Trial};
 pub use types::{Direction, TrialState};
 
@@ -236,6 +239,8 @@ pub mod prelude {
     pub use crate::sampler::random::RandomSampler;
     pub use crate::sampler::tpe::TpeSampler;
     pub use crate::study::Study;
+    #[cfg(feature = "serde")]
+    pub use crate::study::StudySnapshot;
     pub use crate::trial::{AttrValue, Trial};
     pub use crate::types::Direction;
 }

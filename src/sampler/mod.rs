@@ -18,6 +18,7 @@ use crate::types::TrialState;
 /// parameter values, their distributions, and the objective value returned
 /// by the objective function.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompletedTrial<V = f64> {
     /// The unique identifier for this trial.
     pub id: u64,

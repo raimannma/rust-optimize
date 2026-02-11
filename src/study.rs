@@ -1650,6 +1650,80 @@ impl Study<f64> {
     }
 }
 
+/// A serializable snapshot of a study's state.
+///
+/// Since [`Study`] contains non-serializable fields (samplers, atomics, etc.),
+/// this struct captures the essential state needed to save and restore a study.
+///
+/// # Schema versioning
+///
+/// The `version` field enables future schema evolution without breaking existing files.
+/// The current version is `1`.
+///
+/// # Sampler state
+///
+/// Sampler state is **not** included in the snapshot. After loading, the study
+/// uses a default `RandomSampler`. Call [`Study::set_sampler`] to restore
+/// the desired sampler configuration.
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct StudySnapshot<V> {
+    /// Schema version for forward compatibility.
+    pub version: u32,
+    /// The optimization direction.
+    pub direction: Direction,
+    /// All completed (and pruned) trials.
+    pub trials: Vec<CompletedTrial<V>>,
+    /// The next trial ID to assign.
+    pub next_trial_id: u64,
+    /// Optional metadata (creation timestamp, sampler description, etc.).
+    pub metadata: HashMap<String, String>,
+}
+
+#[cfg(feature = "serde")]
+impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
+    /// Saves the study state to a JSON file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the file cannot be created or written.
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let snapshot = StudySnapshot {
+            version: 1,
+            direction: self.direction,
+            trials: self.trials(),
+            next_trial_id: self.next_trial_id.load(Ordering::Relaxed),
+            metadata: HashMap::new(),
+        };
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer_pretty(file, &snapshot).map_err(std::io::Error::other)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<V: PartialOrd + Clone + serde::de::DeserializeOwned + 'static> Study<V> {
+    /// Loads a study from a JSON file.
+    ///
+    /// The loaded study uses a `RandomSampler` by default. Call
+    /// [`set_sampler()`](Self::set_sampler) to restore the original sampler
+    /// configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the file cannot be read or parsed.
+    pub fn load(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let snapshot: StudySnapshot<V> = serde_json::from_reader(file)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let study = Study::new(snapshot.direction);
+        *study.completed_trials.write() = snapshot.trials;
+        study
+            .next_trial_id
+            .store(snapshot.next_trial_id, Ordering::Relaxed);
+        Ok(study)
+    }
+}
+
 /// Returns `true` if the error represents a pruned trial.
 ///
 /// Checks via `Any` downcasting whether `e` is `Error::TrialPruned` or

@@ -21,15 +21,19 @@ thiserror = "2"
 parking_lot = "0.12"
 tokio = { version = "1", features = ["sync", "rt-multi-thread"], optional = true }
 optimizer-derive = { version = "0.1.0", path = "optimizer-derive", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
 default = []
 async = ["dep:tokio"]
 derive = ["dep:optimizer-derive"]
+serde = ["dep:serde", "dep:serde_json"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 optimizer-derive = { version = "0.1.0", path = "optimizer-derive" }
+serde_json = "1"
 
 [[example]]
 name = "async_api_optimization"

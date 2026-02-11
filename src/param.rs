@@ -6,6 +6,7 @@
 /// For categorical parameters, the `Categorical` variant stores
 /// the index into the choices array.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ParamValue {
     /// A floating-point parameter value.
     Float(f64),

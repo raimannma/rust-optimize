@@ -2,6 +2,7 @@
 
 /// Distribution for floating-point parameters.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FloatDistribution {
     /// Lower bound (inclusive).
     pub low: f64,
@@ -15,6 +16,7 @@ pub struct FloatDistribution {
 
 /// Distribution for integer parameters.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IntDistribution {
     /// Lower bound (inclusive).
     pub low: i64,
@@ -28,6 +30,7 @@ pub struct IntDistribution {
 
 /// Distribution for categorical parameters.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CategoricalDistribution {
     /// Number of choices available.
     pub n_choices: usize,
@@ -35,6 +38,7 @@ pub struct CategoricalDistribution {
 
 /// Enum wrapping all parameter distribution types.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Distribution {
     /// A floating-point distribution.
     Float(FloatDistribution),
