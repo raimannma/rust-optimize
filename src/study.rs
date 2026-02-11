@@ -343,18 +343,11 @@ where
     /// Returns the trial ID of the current best trial from the given slice.
     #[cfg(feature = "tracing")]
     fn best_id(&self, trials: &[CompletedTrial<V>]) -> Option<u64> {
+        let direction = self.direction;
         trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
-            .max_by(|a, b| {
-                let ordering = a.value.partial_cmp(&b.value);
-                match self.direction {
-                    Direction::Minimize => {
-                        ordering.map_or(core::cmp::Ordering::Equal, core::cmp::Ordering::reverse)
-                    }
-                    Direction::Maximize => ordering.unwrap_or(core::cmp::Ordering::Equal),
-                }
-            })
+            .max_by(|a, b| Self::compare_trials(a, b, direction))
             .map(|t| t.id)
     }
 
@@ -461,6 +454,7 @@ where
             trial.user_attrs().clone(),
         );
         completed.state = TrialState::Complete;
+        completed.constraints = trial.constraint_values().to_vec();
         self.completed_trials.write().push(completed);
     }
 
@@ -570,6 +564,7 @@ where
             trial.user_attrs().clone(),
         );
         completed.state = TrialState::Pruned;
+        completed.constraints = trial.constraint_values().to_vec();
         self.completed_trials.write().push(completed);
     }
 
@@ -636,11 +631,45 @@ where
             .count()
     }
 
+    /// Compares two completed trials using constraint-aware ranking.
+    ///
+    /// 1. Feasible trials always rank above infeasible trials.
+    /// 2. Among feasible trials, rank by objective value (respecting direction).
+    /// 3. Among infeasible trials, rank by total constraint violation (lower is better).
+    fn compare_trials(
+        a: &CompletedTrial<V>,
+        b: &CompletedTrial<V>,
+        direction: Direction,
+    ) -> core::cmp::Ordering {
+        match (a.is_feasible(), b.is_feasible()) {
+            (true, false) => core::cmp::Ordering::Greater,
+            (false, true) => core::cmp::Ordering::Less,
+            (false, false) => {
+                let va: f64 = a.constraints.iter().map(|c| c.max(0.0)).sum();
+                let vb: f64 = b.constraints.iter().map(|c| c.max(0.0)).sum();
+                vb.partial_cmp(&va).unwrap_or(core::cmp::Ordering::Equal)
+            }
+            (true, true) => {
+                let ordering = a.value.partial_cmp(&b.value);
+                match direction {
+                    Direction::Minimize => {
+                        ordering.map_or(core::cmp::Ordering::Equal, core::cmp::Ordering::reverse)
+                    }
+                    Direction::Maximize => ordering.unwrap_or(core::cmp::Ordering::Equal),
+                }
+            }
+        }
+    }
+
     /// Returns the trial with the best objective value.
     ///
     /// The "best" trial depends on the optimization direction:
     /// - `Direction::Minimize`: Returns the trial with the lowest objective value.
     /// - `Direction::Maximize`: Returns the trial with the highest objective value.
+    ///
+    /// When constraints are present, feasible trials always rank above infeasible
+    /// trials. Among infeasible trials, those with lower total constraint violation
+    /// are preferred.
     ///
     /// # Errors
     ///
@@ -675,25 +704,12 @@ where
         V: Clone,
     {
         let trials = self.completed_trials.read();
+        let direction = self.direction;
 
         let best = trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
-            .max_by(|a, b| {
-                // For Minimize, we want the smallest value to be "max" in ordering
-                // For Maximize, we want the largest value to be "max" in ordering
-                let ordering = a.value.partial_cmp(&b.value);
-                match self.direction {
-                    Direction::Minimize => {
-                        // Reverse ordering: smaller values are "greater" for max_by
-                        ordering.map_or(core::cmp::Ordering::Equal, core::cmp::Ordering::reverse)
-                    }
-                    Direction::Maximize => {
-                        // Normal ordering: larger values are "greater" for max_by
-                        ordering.unwrap_or(core::cmp::Ordering::Equal)
-                    }
-                }
-            })
+            .max_by(|a, b| Self::compare_trials(a, b, direction))
             .ok_or(crate::Error::NoCompletedTrials)?;
 
         Ok(best.clone())
@@ -752,21 +768,14 @@ where
         V: Clone,
     {
         let trials = self.completed_trials.read();
+        let direction = self.direction;
         let mut completed: Vec<_> = trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
             .cloned()
             .collect();
-        completed.sort_by(|a, b| match self.direction {
-            Direction::Minimize => a
-                .value
-                .partial_cmp(&b.value)
-                .unwrap_or(core::cmp::Ordering::Equal),
-            Direction::Maximize => b
-                .value
-                .partial_cmp(&a.value)
-                .unwrap_or(core::cmp::Ordering::Equal),
-        });
+        // Sort best-first: reverse the compare_trials ordering (which is designed for max_by)
+        completed.sort_by(|a, b| Self::compare_trials(b, a, direction));
         completed.truncate(n);
         completed
     }

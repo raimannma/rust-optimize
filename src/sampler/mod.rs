@@ -41,6 +41,9 @@ pub struct CompletedTrial<V = f64> {
     pub state: TrialState,
     /// User-defined attributes stored during the trial.
     pub user_attrs: HashMap<String, AttrValue>,
+    /// Constraint values for this trial (<=0.0 means feasible).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub constraints: Vec<f64>,
 }
 
 impl<V> CompletedTrial<V> {
@@ -61,6 +64,7 @@ impl<V> CompletedTrial<V> {
             intermediate_values: Vec::new(),
             state: TrialState::Complete,
             user_attrs: HashMap::new(),
+            constraints: Vec::new(),
         }
     }
 
@@ -83,6 +87,7 @@ impl<V> CompletedTrial<V> {
             intermediate_values,
             state: TrialState::Complete,
             user_attrs,
+            constraints: Vec::new(),
         }
     }
 
@@ -125,6 +130,14 @@ impl<V> CompletedTrial<V> {
                 .cast_param_value(v)
                 .expect("parameter type mismatch: stored value incompatible with parameter")
         })
+    }
+
+    /// Returns `true` if all constraints are satisfied (values <= 0.0).
+    ///
+    /// A trial with no constraints is considered feasible.
+    #[must_use]
+    pub fn is_feasible(&self) -> bool {
+        self.constraints.iter().all(|&c| c <= 0.0)
     }
 
     /// Gets a user attribute by key.

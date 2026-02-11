@@ -178,6 +178,7 @@ impl BohbSampler {
                         intermediate_values: trial.intermediate_values.clone(),
                         state: trial.state,
                         user_attrs: trial.user_attrs.clone(),
+                        constraints: trial.constraints.clone(),
                     })
             })
             .collect()
@@ -396,6 +397,7 @@ mod tests {
             intermediate_values,
             state: TrialState::Complete,
             user_attrs: HashMap::new(),
+            constraints: Vec::new(),
         }
     }
 

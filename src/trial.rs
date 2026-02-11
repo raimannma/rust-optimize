@@ -89,6 +89,8 @@ pub struct Trial {
     user_attrs: HashMap<String, AttrValue>,
     /// Pre-filled parameter values from enqueue (used instead of sampling).
     fixed_params: HashMap<ParamId, ParamValue>,
+    /// Constraint values for this trial (<=0.0 means feasible).
+    constraint_values: Vec<f64>,
 }
 
 impl core::fmt::Debug for Trial {
@@ -105,6 +107,7 @@ impl core::fmt::Debug for Trial {
             .field("has_pruner", &self.pruner.is_some())
             .field("user_attrs", &self.user_attrs)
             .field("fixed_params", &self.fixed_params)
+            .field("constraint_values", &self.constraint_values)
             .finish()
     }
 }
@@ -144,6 +147,7 @@ impl Trial {
             pruner: None,
             user_attrs: HashMap::new(),
             fixed_params: HashMap::new(),
+            constraint_values: Vec::new(),
         }
     }
 
@@ -175,6 +179,7 @@ impl Trial {
             pruner: Some(pruner),
             user_attrs: HashMap::new(),
             fixed_params: HashMap::new(),
+            constraint_values: Vec::new(),
         }
     }
 
@@ -290,6 +295,20 @@ impl Trial {
     #[must_use]
     pub fn user_attrs(&self) -> &HashMap<String, AttrValue> {
         &self.user_attrs
+    }
+
+    /// Sets constraint values for this trial.
+    ///
+    /// Each value represents a constraint; a value <= 0.0 means the constraint
+    /// is satisfied (feasible). A value > 0.0 means the constraint is violated.
+    pub fn set_constraints(&mut self, values: Vec<f64>) {
+        self.constraint_values = values;
+    }
+
+    /// Returns the constraint values for this trial.
+    #[must_use]
+    pub fn constraint_values(&self) -> &[f64] {
+        &self.constraint_values
     }
 
     /// Sets the trial state to Complete.
