@@ -233,6 +233,7 @@ pub mod pareto;
 pub mod pruner;
 mod rng_util;
 pub mod sampler;
+pub mod storage;
 mod study;
 mod trial;
 mod types;
@@ -269,6 +270,9 @@ pub use sampler::random::RandomSampler;
 #[cfg(feature = "sobol")]
 pub use sampler::sobol::SobolSampler;
 pub use sampler::tpe::TpeSampler;
+#[cfg(feature = "journal")]
+pub use storage::JournalStorage;
+pub use storage::{MemoryStorage, Storage};
 pub use study::Study;
 #[cfg(feature = "serde")]
 pub use study::StudySnapshot;
@@ -314,6 +318,9 @@ pub mod prelude {
     #[cfg(feature = "sobol")]
     pub use crate::sampler::sobol::SobolSampler;
     pub use crate::sampler::tpe::TpeSampler;
+    #[cfg(feature = "journal")]
+    pub use crate::storage::JournalStorage;
+    pub use crate::storage::{MemoryStorage, Storage};
     pub use crate::study::Study;
     #[cfg(feature = "serde")]
     pub use crate::study::StudySnapshot;

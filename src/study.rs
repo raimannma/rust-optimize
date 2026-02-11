@@ -49,8 +49,8 @@ where
     sampler: Arc<dyn Sampler>,
     /// The pruner used to decide whether to stop trials early.
     pruner: Arc<dyn Pruner>,
-    /// Completed trials (wrapped in Arc for sharing with Trial).
-    completed_trials: Arc<RwLock<Vec<CompletedTrial<V>>>>,
+    /// Trial storage backend (default: [`MemoryStorage`](crate::storage::MemoryStorage)).
+    storage: Arc<dyn crate::storage::Storage<V>>,
     /// Counter for generating unique trial IDs.
     next_trial_id: AtomicU64,
     /// Optional factory for creating sampler-aware trials.
@@ -84,7 +84,7 @@ where
     #[must_use]
     pub fn new(direction: Direction) -> Self
     where
-        V: 'static,
+        V: Send + Sync + 'static,
     {
         Self::with_sampler(direction, RandomSampler::new())
     }
@@ -109,7 +109,7 @@ where
     #[must_use]
     pub fn minimize(sampler: impl Sampler + 'static) -> Self
     where
-        V: 'static,
+        V: Send + Sync + 'static,
     {
         Self::with_sampler(Direction::Minimize, sampler)
     }
@@ -134,7 +134,7 @@ where
     #[must_use]
     pub fn maximize(sampler: impl Sampler + 'static) -> Self
     where
-        V: 'static,
+        V: Send + Sync + 'static,
     {
         Self::with_sampler(Direction::Maximize, sampler)
     }
@@ -158,40 +158,28 @@ where
     /// ```
     pub fn with_sampler(direction: Direction, sampler: impl Sampler + 'static) -> Self
     where
-        V: 'static,
+        V: Send + Sync + 'static,
     {
-        let sampler: Arc<dyn Sampler> = Arc::new(sampler);
-        let completed_trials = Arc::new(RwLock::new(Vec::new()));
-
-        let pruner: Arc<dyn Pruner> = Arc::new(NopPruner);
-
-        // For Study<f64>, set up a trial factory that provides sampler integration.
-        // This uses Any downcasting to check at runtime whether V = f64.
-        let trial_factory = Self::make_trial_factory(&sampler, &completed_trials, &pruner);
-
-        Self {
+        Self::with_sampler_and_storage(
             direction,
             sampler,
-            pruner,
-            completed_trials,
-            next_trial_id: AtomicU64::new(0),
-            trial_factory,
-            enqueued_params: Arc::new(Mutex::new(VecDeque::new())),
-        }
+            crate::storage::MemoryStorage::<V>::new(),
+        )
     }
 
     /// Builds a trial factory for sampler integration when `V = f64`.
     fn make_trial_factory(
         sampler: &Arc<dyn Sampler>,
-        completed_trials: &Arc<RwLock<Vec<CompletedTrial<V>>>>,
+        storage: &Arc<dyn crate::storage::Storage<V>>,
         pruner: &Arc<dyn Pruner>,
     ) -> Option<Arc<dyn Fn(u64) -> Trial + Send + Sync>>
     where
         V: 'static,
     {
-        // Try to downcast the completed_trials Arc to the f64 specialization.
+        // Try to downcast the storage's trial buffer to the f64 specialization.
         // This succeeds only when V = f64, enabling automatic sampler integration.
-        let any_ref: &dyn Any = completed_trials;
+        let trials_arc = storage.trials_arc();
+        let any_ref: &dyn Any = trials_arc;
         let f64_trials: Option<&Arc<RwLock<Vec<CompletedTrial<f64>>>>> = any_ref.downcast_ref();
 
         f64_trials.map(|trials| {
@@ -208,6 +196,42 @@ where
             });
             factory
         })
+    }
+
+    /// Creates a study with a custom sampler and storage backend.
+    ///
+    /// This is the most general constructor — all other constructors
+    /// delegate to this one.
+    pub fn with_sampler_and_storage(
+        direction: Direction,
+        sampler: impl Sampler + 'static,
+        storage: impl crate::storage::Storage<V> + 'static,
+    ) -> Self
+    where
+        V: 'static,
+    {
+        let sampler: Arc<dyn Sampler> = Arc::new(sampler);
+        let pruner: Arc<dyn Pruner> = Arc::new(NopPruner);
+        let storage: Arc<dyn crate::storage::Storage<V>> = Arc::new(storage);
+        let trial_factory = Self::make_trial_factory(&sampler, &storage, &pruner);
+
+        let next_id = storage
+            .trials_arc()
+            .read()
+            .iter()
+            .map(|t| t.id)
+            .max()
+            .map_or(0, |id| id + 1);
+
+        Self {
+            direction,
+            sampler,
+            pruner,
+            storage,
+            next_trial_id: AtomicU64::new(next_id),
+            trial_factory,
+            enqueued_params: Arc::new(Mutex::new(VecDeque::new())),
+        }
     }
 
     /// Returns the optimization direction.
@@ -254,18 +278,19 @@ where
         pruner: impl Pruner + 'static,
     ) -> Self
     where
-        V: 'static,
+        V: Send + Sync + 'static,
     {
         let sampler: Arc<dyn Sampler> = Arc::new(sampler);
         let pruner: Arc<dyn Pruner> = Arc::new(pruner);
-        let completed_trials = Arc::new(RwLock::new(Vec::new()));
-        let trial_factory = Self::make_trial_factory(&sampler, &completed_trials, &pruner);
+        let storage: Arc<dyn crate::storage::Storage<V>> =
+            Arc::new(crate::storage::MemoryStorage::<V>::new());
+        let trial_factory = Self::make_trial_factory(&sampler, &storage, &pruner);
 
         Self {
             direction,
             sampler,
             pruner,
-            completed_trials,
+            storage,
             next_trial_id: AtomicU64::new(0),
             trial_factory,
             enqueued_params: Arc::new(Mutex::new(VecDeque::new())),
@@ -277,8 +302,7 @@ where
         V: 'static,
     {
         self.sampler = Arc::new(sampler);
-        self.trial_factory =
-            Self::make_trial_factory(&self.sampler, &self.completed_trials, &self.pruner);
+        self.trial_factory = Self::make_trial_factory(&self.sampler, &self.storage, &self.pruner);
     }
 
     /// Sets a new pruner for the study.
@@ -291,8 +315,7 @@ where
         V: 'static,
     {
         self.pruner = Arc::new(pruner);
-        self.trial_factory =
-            Self::make_trial_factory(&self.sampler, &self.completed_trials, &self.pruner);
+        self.trial_factory = Self::make_trial_factory(&self.sampler, &self.storage, &self.pruner);
     }
 
     /// Returns a reference to the study's pruner.
@@ -401,6 +424,13 @@ where
     /// assert_eq!(trial2.id(), 1);
     /// ```
     pub fn create_trial(&self) -> Trial {
+        if self.storage.refresh() {
+            let trials = self.storage.trials_arc().read();
+            if let Some(max_id) = trials.iter().map(|t| t.id).max() {
+                self.next_trial_id.fetch_max(max_id + 1, Ordering::SeqCst);
+            }
+        }
+
         let id = self.next_trial_id();
         let mut trial = if let Some(factory) = &self.trial_factory {
             factory(id)
@@ -455,7 +485,8 @@ where
         );
         completed.state = TrialState::Complete;
         completed.constraints = trial.constraint_values().to_vec();
-        self.completed_trials.write().push(completed);
+
+        self.storage.push(completed);
     }
 
     /// Records a failed trial with an error message.
@@ -565,7 +596,8 @@ where
         );
         completed.state = TrialState::Pruned;
         completed.constraints = trial.constraint_values().to_vec();
-        self.completed_trials.write().push(completed);
+
+        self.storage.push(completed);
     }
 
     /// Returns an iterator over all completed trials.
@@ -596,7 +628,7 @@ where
     where
         V: Clone,
     {
-        self.completed_trials.read().clone()
+        self.storage.trials_arc().read().clone()
     }
 
     /// Returns the number of completed trials.
@@ -619,12 +651,13 @@ where
     /// assert_eq!(study.n_trials(), 1);
     /// ```
     pub fn n_trials(&self) -> usize {
-        self.completed_trials.read().len()
+        self.storage.trials_arc().read().len()
     }
 
     /// Returns the number of pruned trials.
     pub fn n_pruned_trials(&self) -> usize {
-        self.completed_trials
+        self.storage
+            .trials_arc()
             .read()
             .iter()
             .filter(|t| t.state == TrialState::Pruned)
@@ -703,7 +736,7 @@ where
     where
         V: Clone,
     {
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
         let direction = self.direction;
 
         let best = trials
@@ -767,7 +800,7 @@ where
     where
         V: Clone,
     {
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
         let direction = self.direction;
         let mut completed: Vec<_> = trials
             .iter()
@@ -848,7 +881,7 @@ where
                     #[cfg(feature = "tracing")]
                     {
                         tracing::info!(trial_id, "trial completed");
-                        let trials = self.completed_trials.read();
+                        let trials = self.storage.trials_arc().read();
                         if trials
                             .iter()
                             .filter(|t| t.state == TrialState::Complete)
@@ -876,7 +909,8 @@ where
 
         // Return error if no trials completed successfully
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -975,7 +1009,8 @@ where
 
         // Return error if no trials completed successfully
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1101,7 +1136,8 @@ where
 
         // Return error if no trials completed successfully
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1197,7 +1233,7 @@ where
                     #[cfg(feature = "tracing")]
                     {
                         tracing::info!(trial_id, "trial completed");
-                        let trials = self.completed_trials.read();
+                        let trials = self.storage.trials_arc().read();
                         if trials
                             .iter()
                             .filter(|t| t.state == TrialState::Complete)
@@ -1210,7 +1246,7 @@ where
                     }
 
                     // Get the just-completed trial for the callback
-                    let trials = self.completed_trials.read();
+                    let trials = self.storage.trials_arc().read();
                     let Some(completed) = trials.last() else {
                         return Err(crate::Error::Internal(
                             "completed trial not found after adding",
@@ -1243,7 +1279,8 @@ where
 
         // Return error if no trials completed successfully
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1328,7 +1365,8 @@ where
         }
 
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1420,7 +1458,7 @@ where
                     #[cfg(feature = "tracing")]
                     {
                         tracing::info!(trial_id, "trial completed");
-                        let trials = self.completed_trials.read();
+                        let trials = self.storage.trials_arc().read();
                         if trials
                             .iter()
                             .filter(|t| t.state == TrialState::Complete)
@@ -1432,7 +1470,7 @@ where
                         }
                     }
 
-                    let trials = self.completed_trials.read();
+                    let trials = self.storage.trials_arc().read();
                     let Some(completed) = trials.last() else {
                         return Err(crate::Error::Internal(
                             "completed trial not found after adding",
@@ -1461,7 +1499,8 @@ where
         }
 
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1519,7 +1558,8 @@ where
         }
 
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1608,7 +1648,8 @@ where
         }
 
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1716,7 +1757,8 @@ where
 
         // Return error if no trials completed successfully
         let has_complete = self
-            .completed_trials
+            .storage
+            .trials_arc()
             .read()
             .iter()
             .any(|t| t.state == TrialState::Complete);
@@ -1746,7 +1788,7 @@ where
     pub fn to_csv(&self, mut writer: impl std::io::Write) -> std::io::Result<()> {
         use std::collections::BTreeMap;
 
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
 
         // Collect all unique parameter labels (sorted for deterministic column order).
         let mut param_columns: BTreeMap<ParamId, String> = BTreeMap::new();
@@ -1873,7 +1915,7 @@ where
     pub fn summary(&self) -> String {
         use fmt::Write;
 
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
         let n_complete = trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
@@ -1967,7 +2009,7 @@ where
         use crate::param::ParamValue;
         use crate::types::TrialState;
 
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
         let complete: Vec<_> = trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
@@ -2064,7 +2106,7 @@ where
         use crate::param::ParamValue;
         use crate::types::TrialState;
 
-        let trials = self.completed_trials.read();
+        let trials = self.storage.trials_arc().read();
         let complete: Vec<_> = trials
             .iter()
             .filter(|t| t.state == TrialState::Complete)
@@ -2258,6 +2300,63 @@ impl Study<f64> {
     }
 }
 
+impl<V: PartialOrd + Send + Sync + 'static> Study<V> {
+    /// Creates a study with a custom sampler, pruner, and storage backend.
+    pub fn with_sampler_pruner_and_storage(
+        direction: Direction,
+        sampler: impl Sampler + 'static,
+        pruner: impl Pruner + 'static,
+        storage: impl crate::storage::Storage<V> + 'static,
+    ) -> Self {
+        let sampler: Arc<dyn Sampler> = Arc::new(sampler);
+        let pruner: Arc<dyn Pruner> = Arc::new(pruner);
+        let storage: Arc<dyn crate::storage::Storage<V>> = Arc::new(storage);
+        let trial_factory = Self::make_trial_factory(&sampler, &storage, &pruner);
+
+        let next_id = storage
+            .trials_arc()
+            .read()
+            .iter()
+            .map(|t| t.id)
+            .max()
+            .map_or(0, |id| id + 1);
+
+        Self {
+            direction,
+            sampler,
+            pruner,
+            storage,
+            next_trial_id: AtomicU64::new(next_id),
+            trial_factory,
+            enqueued_params: Arc::new(Mutex::new(VecDeque::new())),
+        }
+    }
+}
+
+#[cfg(feature = "journal")]
+impl<V> Study<V>
+where
+    V: PartialOrd + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+{
+    /// Creates a study backed by a JSONL journal file.
+    ///
+    /// Any existing trials in the file are loaded into memory and the
+    /// trial ID counter is set to one past the highest stored ID. New
+    /// trials are written through to the file on completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Storage`](crate::Error::Storage) error if loading fails.
+    pub fn with_journal(
+        direction: Direction,
+        sampler: impl Sampler + 'static,
+        path: impl AsRef<std::path::Path>,
+    ) -> crate::Result<Self> {
+        let storage = crate::storage::JournalStorage::<V>::open(path)?;
+        Ok(Self::with_sampler_and_storage(direction, sampler, storage))
+    }
+}
+
 #[cfg(feature = "visualization")]
 impl Study<f64> {
     /// Generates an HTML report with interactive Plotly.js charts.
@@ -2382,7 +2481,7 @@ impl<V: PartialOrd + Clone + Default + serde::Serialize> Study<V> {
 }
 
 #[cfg(feature = "serde")]
-impl<V: PartialOrd + Clone + serde::de::DeserializeOwned + 'static> Study<V> {
+impl<V: PartialOrd + Send + Sync + Clone + serde::de::DeserializeOwned + 'static> Study<V> {
     /// Loads a study from a JSON file.
     ///
     /// The loaded study uses a `RandomSampler` by default. Call
@@ -2397,7 +2496,7 @@ impl<V: PartialOrd + Clone + serde::de::DeserializeOwned + 'static> Study<V> {
         let snapshot: StudySnapshot<V> = serde_json::from_reader(file)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let study = Study::new(snapshot.direction);
-        *study.completed_trials.write() = snapshot.trials;
+        *study.storage.trials_arc().write() = snapshot.trials;
         study
             .next_trial_id
             .store(snapshot.next_trial_id, Ordering::Relaxed);

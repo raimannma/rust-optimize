@@ -93,6 +93,11 @@ pub enum Error {
     #[cfg(feature = "async")]
     #[error("async task error: {0}")]
     TaskError(String),
+
+    /// Returned when a storage operation fails.
+    #[cfg(feature = "journal")]
+    #[error("storage error: {0}")]
+    Storage(String),
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
