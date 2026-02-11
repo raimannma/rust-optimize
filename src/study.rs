@@ -358,6 +358,22 @@ where
             .map(|t| t.id)
     }
 
+    /// Creates a new trial with pre-set parameter values.
+    ///
+    /// The trial gets a new unique ID but reuses the given parameters. When
+    /// `suggest_param` is called on the resulting trial, fixed values are
+    /// returned instead of sampling.
+    fn create_trial_with_params(&self, params: HashMap<ParamId, ParamValue>) -> Trial {
+        let id = self.next_trial_id();
+        let mut trial = if let Some(factory) = &self.trial_factory {
+            factory(id)
+        } else {
+            Trial::new(id)
+        };
+        trial.set_fixed_params(params);
+        trial
+    }
+
     /// Returns the number of enqueued parameter configurations.
     #[must_use]
     pub fn n_enqueued(&self) -> usize {
@@ -1582,6 +1598,114 @@ where
             }
         }
 
+        let has_complete = self
+            .completed_trials
+            .read()
+            .iter()
+            .any(|t| t.state == TrialState::Complete);
+        if !has_complete {
+            return Err(crate::Error::NoCompletedTrials);
+        }
+
+        Ok(())
+    }
+
+    /// Runs optimization with automatic retry for failed trials.
+    ///
+    /// If the objective function returns an error, the same parameter
+    /// configuration is retried up to `max_retries` times. Only after all
+    /// retries are exhausted is the trial recorded as permanently failed.
+    ///
+    /// `n_trials` counts unique parameter configurations, not total
+    /// evaluations. A trial retried 3 times still counts as 1 toward the
+    /// `n_trials` limit.
+    ///
+    /// # Arguments
+    ///
+    /// * `n_trials` - The number of unique configurations to evaluate.
+    /// * `max_retries` - Maximum retry attempts per failed trial.
+    /// * `objective` - A closure that takes a mutable reference to a `Trial`
+    ///   and returns the objective value or an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::NoCompletedTrials` if no trials completed successfully.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::sampler::random::RandomSampler;
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let sampler = RandomSampler::with_seed(42);
+    /// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+    /// let x_param = FloatParam::new(-10.0, 10.0);
+    ///
+    /// let call_count = std::cell::Cell::new(0u32);
+    /// study
+    ///     .optimize_with_retries(5, 2, |trial| {
+    ///         let x = x_param.suggest(trial)?;
+    ///         call_count.set(call_count.get() + 1);
+    ///         // Fail once every other call to exercise retry
+    ///         if call_count.get() % 2 == 0 {
+    ///             Err::<f64, _>(optimizer::Error::Internal("transient"))
+    ///         } else {
+    ///             Ok(x * x)
+    ///         }
+    ///     })
+    ///     .unwrap();
+    ///
+    /// assert_eq!(study.n_trials(), 5);
+    /// ```
+    pub fn optimize_with_retries<F, E>(
+        &self,
+        n_trials: usize,
+        max_retries: usize,
+        mut objective: F,
+    ) -> crate::Result<()>
+    where
+        F: FnMut(&mut Trial) -> core::result::Result<V, E>,
+        E: ToString + 'static,
+        V: Default,
+    {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize_with_retries", n_trials, max_retries, direction = ?self.direction).entered();
+
+        for _ in 0..n_trials {
+            let mut trial = self.create_trial();
+            let mut retries = 0;
+            loop {
+                match objective(&mut trial) {
+                    Ok(value) => {
+                        #[cfg(feature = "tracing")]
+                        let trial_id = trial.id();
+                        self.complete_trial(trial, value);
+                        trace_info!(trial_id, "trial completed");
+                        break;
+                    }
+                    Err(_) if retries < max_retries => {
+                        retries += 1;
+                        // Create a new trial with the same parameters
+                        trial = self.create_trial_with_params(trial.params().clone());
+                    }
+                    Err(e) => {
+                        #[cfg(feature = "tracing")]
+                        let trial_id = trial.id();
+                        if is_trial_pruned(&e) {
+                            self.prune_trial(trial);
+                            trace_info!(trial_id, "trial pruned");
+                        } else {
+                            self.fail_trial(trial, e.to_string());
+                            trace_debug!(trial_id, "trial permanently failed");
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Return error if no trials completed successfully
         let has_complete = self
             .completed_trials
             .read()

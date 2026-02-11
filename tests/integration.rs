@@ -1964,3 +1964,136 @@ fn test_display_matches_summary() {
 
     assert_eq!(format!("{study}"), study.summary());
 }
+
+// =============================================================================
+// Tests: optimize_with_retries
+// =============================================================================
+
+#[test]
+fn test_retries_successful_trials_not_retried() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+    let call_count = std::cell::Cell::new(0u32);
+
+    study
+        .optimize_with_retries(5, 3, |trial| {
+            let x = x_param.suggest(trial)?;
+            call_count.set(call_count.get() + 1);
+            Ok::<_, Error>(x * x)
+        })
+        .unwrap();
+
+    // All trials succeed on first try — exactly 5 calls
+    assert_eq!(call_count.get(), 5);
+    assert_eq!(study.n_trials(), 5);
+}
+
+#[test]
+fn test_retries_failed_trials_retried_up_to_max() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+    let call_count = std::cell::Cell::new(0u32);
+
+    let result = study.optimize_with_retries(1, 3, |trial| {
+        let _ = x_param.suggest(trial).unwrap();
+        call_count.set(call_count.get() + 1);
+        Err::<f64, _>("always fails")
+    });
+
+    // 1 initial attempt + 3 retries = 4 total calls
+    assert_eq!(call_count.get(), 4);
+    // No trials completed
+    assert!(matches!(result, Err(Error::NoCompletedTrials)));
+}
+
+#[test]
+fn test_retries_permanently_failed_after_exhaustion() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+
+    let result = study.optimize_with_retries(3, 2, |trial| {
+        let _ = x_param.suggest(trial).unwrap();
+        Err::<f64, _>("transient error")
+    });
+
+    assert!(
+        matches!(result, Err(Error::NoCompletedTrials)),
+        "all trials should permanently fail"
+    );
+    assert_eq!(
+        study.n_trials(),
+        0,
+        "no completed trials should be recorded"
+    );
+}
+
+#[test]
+fn test_retries_uses_same_parameters() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+    let seen_values = std::cell::RefCell::new(Vec::new());
+    let call_count = std::cell::Cell::new(0u32);
+
+    study
+        .optimize_with_retries(1, 2, |trial| {
+            let x = x_param.suggest(trial).map_err(|e| e.to_string())?;
+            seen_values.borrow_mut().push(x);
+            call_count.set(call_count.get() + 1);
+            // Fail first two attempts, succeed on third
+            if call_count.get() < 3 {
+                Err::<f64, _>("transient".to_string())
+            } else {
+                Ok(x * x)
+            }
+        })
+        .unwrap();
+
+    let values = seen_values.borrow();
+    assert_eq!(values.len(), 3, "should be called 3 times (1 + 2 retries)");
+    // All three calls should have gotten the same parameter value
+    assert_eq!(values[0], values[1]);
+    assert_eq!(values[1], values[2]);
+}
+
+#[test]
+fn test_retries_n_trials_counts_unique_configs() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+    let call_count = std::cell::Cell::new(0u32);
+
+    study
+        .optimize_with_retries(3, 2, |trial| {
+            let x = x_param.suggest(trial).map_err(|e| e.to_string())?;
+            call_count.set(call_count.get() + 1);
+            // Fail first attempt of each config, succeed on retry
+            if call_count.get() % 2 == 1 {
+                Err::<f64, _>("transient".to_string())
+            } else {
+                Ok(x * x)
+            }
+        })
+        .unwrap();
+
+    // 3 unique configs, each needing 2 calls = 6 total calls
+    assert_eq!(call_count.get(), 6);
+    // But only 3 completed trials
+    assert_eq!(study.n_trials(), 3);
+}
+
+#[test]
+fn test_retries_with_zero_max_retries_same_as_optimize() {
+    let study: Study<f64> = Study::new(Direction::Minimize);
+    let x_param = FloatParam::new(0.0, 10.0);
+    let call_count = std::cell::Cell::new(0u32);
+
+    study
+        .optimize_with_retries(5, 0, |trial| {
+            let x = x_param.suggest(trial)?;
+            call_count.set(call_count.get() + 1);
+            Ok::<_, Error>(x * x)
+        })
+        .unwrap();
+
+    assert_eq!(call_count.get(), 5);
+    assert_eq!(study.n_trials(), 5);
+}
