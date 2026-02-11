@@ -203,7 +203,7 @@ pub use parameter::{
 };
 pub use pruner::{
     HyperbandPruner, MedianPruner, NopPruner, PatientPruner, PercentilePruner, Pruner,
-    SuccessiveHalvingPruner, ThresholdPruner,
+    SuccessiveHalvingPruner, ThresholdPruner, WilcoxonPruner,
 };
 pub use sampler::CompletedTrial;
 pub use sampler::grid::GridSearchSampler;

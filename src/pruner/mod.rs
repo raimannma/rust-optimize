@@ -11,6 +11,7 @@ mod patient;
 pub(crate) mod percentile;
 mod successive_halving;
 mod threshold;
+mod wilcoxon;
 
 pub use hyperband::HyperbandPruner;
 pub use median::MedianPruner;
@@ -19,6 +20,7 @@ pub use patient::PatientPruner;
 pub use percentile::PercentilePruner;
 pub use successive_halving::SuccessiveHalvingPruner;
 pub use threshold::ThresholdPruner;
+pub use wilcoxon::WilcoxonPruner;
 
 use crate::sampler::CompletedTrial;
 
