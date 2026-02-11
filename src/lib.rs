@@ -272,9 +272,9 @@ pub use storage::JournalStorage;
 #[cfg(feature = "sqlite")]
 pub use storage::SqliteStorage;
 pub use storage::{MemoryStorage, Storage};
-pub use study::{Study, StudyBuilder};
 #[cfg(feature = "serde")]
 pub use study::StudySnapshot;
+pub use study::{Study, StudyBuilder};
 pub use trial::{AttrValue, Trial};
 pub use types::{Direction, TrialState};
 pub use visualization::generate_html_report;
@@ -320,9 +320,9 @@ pub mod prelude {
     #[cfg(feature = "sqlite")]
     pub use crate::storage::SqliteStorage;
     pub use crate::storage::{MemoryStorage, Storage};
-    pub use crate::study::{Study, StudyBuilder};
     #[cfg(feature = "serde")]
     pub use crate::study::StudySnapshot;
+    pub use crate::study::{Study, StudyBuilder};
     pub use crate::trial::{AttrValue, Trial};
     pub use crate::types::Direction;
     pub use crate::visualization::generate_html_report;
