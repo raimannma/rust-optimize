@@ -37,7 +37,7 @@ static NEXT_PARAM_ID: AtomicU64 = AtomicU64::new(0);
 ///
 /// Each parameter is assigned a unique `ParamId` at creation time. Cloning a parameter
 /// copies its `ParamId`, so clones refer to the same logical parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ParamId(u64);
 
 impl ParamId {

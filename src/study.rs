@@ -1,6 +1,7 @@
 //! Study implementation for managing optimization trials.
 
 use core::any::Any;
+use core::fmt;
 #[cfg(feature = "async")]
 use core::future::Future;
 use core::ops::ControlFlow;
@@ -1462,6 +1463,86 @@ where
         }
 
         Ok(())
+    }
+}
+
+impl<V> Study<V>
+where
+    V: PartialOrd + Clone + fmt::Display,
+{
+    /// Returns a human-readable summary of the study.
+    ///
+    /// The summary includes:
+    /// - Optimization direction and total trial count
+    /// - Breakdown by state (complete, pruned) when applicable
+    /// - Best trial value and parameters (if any completed trials exist)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let x = FloatParam::new(0.0, 10.0).name("x");
+    ///
+    /// let mut trial = study.create_trial();
+    /// let _ = x.suggest(&mut trial).unwrap();
+    /// study.complete_trial(trial, 0.42);
+    ///
+    /// let summary = study.summary();
+    /// assert!(summary.contains("Minimize"));
+    /// assert!(summary.contains("0.42"));
+    /// ```
+    #[must_use]
+    pub fn summary(&self) -> String {
+        use fmt::Write;
+
+        let trials = self.completed_trials.read();
+        let n_complete = trials
+            .iter()
+            .filter(|t| t.state == TrialState::Complete)
+            .count();
+        let n_pruned = trials
+            .iter()
+            .filter(|t| t.state == TrialState::Pruned)
+            .count();
+
+        let direction_str = match self.direction {
+            Direction::Minimize => "Minimize",
+            Direction::Maximize => "Maximize",
+        };
+
+        let mut s = format!("Study: {direction_str} | {n} trials", n = trials.len());
+        if n_pruned > 0 {
+            let _ = write!(s, " ({n_complete} complete, {n_pruned} pruned)");
+        }
+
+        drop(trials);
+
+        if let Ok(best) = self.best_trial() {
+            let _ = write!(s, "\nBest value: {} (trial #{})", best.value, best.id);
+            if !best.params.is_empty() {
+                s.push_str("\nBest parameters:");
+                let mut params: Vec<_> = best.params.iter().collect();
+                params.sort_by_key(|(id, _)| *id);
+                for (id, value) in params {
+                    let label = best.param_labels.get(id).map_or("?", String::as_str);
+                    let _ = write!(s, "\n  {label} = {value}");
+                }
+            }
+        }
+
+        s
+    }
+}
+
+impl<V> fmt::Display for Study<V>
+where
+    V: PartialOrd + Clone + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.summary())
     }
 }
 
