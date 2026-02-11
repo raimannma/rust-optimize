@@ -363,6 +363,7 @@ where
             trial.param_labels().clone(),
             value,
             trial.intermediate_values().to_vec(),
+            trial.user_attrs().clone(),
         );
         completed.state = TrialState::Complete;
         self.completed_trials.write().push(completed);
@@ -471,6 +472,7 @@ where
             trial.param_labels().clone(),
             V::default(),
             trial.intermediate_values().to_vec(),
+            trial.user_attrs().clone(),
         );
         completed.state = TrialState::Pruned;
         self.completed_trials.write().push(completed);

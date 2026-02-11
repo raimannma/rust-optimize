@@ -13,6 +13,49 @@ use crate::pruner::Pruner;
 use crate::sampler::{CompletedTrial, Sampler};
 use crate::types::TrialState;
 
+/// A user attribute value that can be stored on a trial.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttrValue {
+    /// A floating-point attribute.
+    Float(f64),
+    /// An integer attribute.
+    Int(i64),
+    /// A string attribute.
+    String(String),
+    /// A boolean attribute.
+    Bool(bool),
+}
+
+impl From<f64> for AttrValue {
+    fn from(v: f64) -> Self {
+        Self::Float(v)
+    }
+}
+
+impl From<i64> for AttrValue {
+    fn from(v: i64) -> Self {
+        Self::Int(v)
+    }
+}
+
+impl From<String> for AttrValue {
+    fn from(v: String) -> Self {
+        Self::String(v)
+    }
+}
+
+impl From<&str> for AttrValue {
+    fn from(v: &str) -> Self {
+        Self::String(v.to_owned())
+    }
+}
+
+impl From<bool> for AttrValue {
+    fn from(v: bool) -> Self {
+        Self::Bool(v)
+    }
+}
+
 /// A trial represents a single evaluation of the objective function.
 ///
 /// Each trial has a unique ID and stores the sampled parameters along with
@@ -41,6 +84,8 @@ pub struct Trial {
     intermediate_values: Vec<(u64, f64)>,
     /// The pruner used to decide whether to stop this trial early.
     pruner: Option<Arc<dyn Pruner>>,
+    /// User-defined attributes for logging, debugging, and analysis.
+    user_attrs: HashMap<String, AttrValue>,
 }
 
 impl core::fmt::Debug for Trial {
@@ -55,6 +100,7 @@ impl core::fmt::Debug for Trial {
             .field("has_history", &self.history.is_some())
             .field("intermediate_values", &self.intermediate_values)
             .field("has_pruner", &self.pruner.is_some())
+            .field("user_attrs", &self.user_attrs)
             .finish()
     }
 }
@@ -92,6 +138,7 @@ impl Trial {
             history: None,
             intermediate_values: Vec::new(),
             pruner: None,
+            user_attrs: HashMap::new(),
         }
     }
 
@@ -121,6 +168,7 @@ impl Trial {
             history: Some(history),
             intermediate_values: Vec::new(),
             pruner: Some(pruner),
+            user_attrs: HashMap::new(),
         }
     }
 
@@ -207,6 +255,23 @@ impl Trial {
     #[must_use]
     pub fn intermediate_values(&self) -> &[(u64, f64)] {
         &self.intermediate_values
+    }
+
+    /// Sets a user attribute on this trial.
+    pub fn set_user_attr(&mut self, key: impl Into<String>, value: impl Into<AttrValue>) {
+        self.user_attrs.insert(key.into(), value.into());
+    }
+
+    /// Gets a user attribute by key.
+    #[must_use]
+    pub fn user_attr(&self, key: &str) -> Option<&AttrValue> {
+        self.user_attrs.get(key)
+    }
+
+    /// Returns all user attributes.
+    #[must_use]
+    pub fn user_attrs(&self) -> &HashMap<String, AttrValue> {
+        &self.user_attrs
     }
 
     /// Sets the trial state to Complete.

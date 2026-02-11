@@ -311,6 +311,7 @@ mod tests {
             HashMap::new(),
             value,
             intermediate_values,
+            HashMap::new(),
         )
     }
 

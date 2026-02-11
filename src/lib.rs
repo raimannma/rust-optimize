@@ -210,7 +210,7 @@ pub use sampler::grid::GridSearchSampler;
 pub use sampler::random::RandomSampler;
 pub use sampler::tpe::TpeSampler;
 pub use study::Study;
-pub use trial::Trial;
+pub use trial::{AttrValue, Trial};
 pub use types::{Direction, TrialState};
 
 /// Convenient wildcard import for the most common types.
@@ -236,6 +236,6 @@ pub mod prelude {
     pub use crate::sampler::random::RandomSampler;
     pub use crate::sampler::tpe::TpeSampler;
     pub use crate::study::Study;
-    pub use crate::trial::Trial;
+    pub use crate::trial::{AttrValue, Trial};
     pub use crate::types::Direction;
 }

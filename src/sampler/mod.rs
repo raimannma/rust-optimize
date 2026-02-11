@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::distribution::Distribution;
 use crate::param::ParamValue;
 use crate::parameter::{ParamId, Parameter};
+use crate::trial::AttrValue;
 use crate::types::TrialState;
 
 /// A completed trial with its parameters, distributions, and objective value.
@@ -32,6 +33,8 @@ pub struct CompletedTrial<V = f64> {
     pub intermediate_values: Vec<(u64, f64)>,
     /// The state of the trial (Complete, Pruned, or Failed).
     pub state: TrialState,
+    /// User-defined attributes stored during the trial.
+    pub user_attrs: HashMap<String, AttrValue>,
 }
 
 impl<V> CompletedTrial<V> {
@@ -51,10 +54,11 @@ impl<V> CompletedTrial<V> {
             value,
             intermediate_values: Vec::new(),
             state: TrialState::Complete,
+            user_attrs: HashMap::new(),
         }
     }
 
-    /// Creates a new completed trial with intermediate values.
+    /// Creates a new completed trial with intermediate values and user attributes.
     pub fn with_intermediate_values(
         id: u64,
         params: HashMap<ParamId, ParamValue>,
@@ -62,6 +66,7 @@ impl<V> CompletedTrial<V> {
         param_labels: HashMap<ParamId, String>,
         value: V,
         intermediate_values: Vec<(u64, f64)>,
+        user_attrs: HashMap<String, AttrValue>,
     ) -> Self {
         Self {
             id,
@@ -71,6 +76,7 @@ impl<V> CompletedTrial<V> {
             value,
             intermediate_values,
             state: TrialState::Complete,
+            user_attrs,
         }
     }
 
@@ -113,6 +119,18 @@ impl<V> CompletedTrial<V> {
                 .cast_param_value(v)
                 .expect("parameter type mismatch: stored value incompatible with parameter")
         })
+    }
+
+    /// Gets a user attribute by key.
+    #[must_use]
+    pub fn user_attr(&self, key: &str) -> Option<&AttrValue> {
+        self.user_attrs.get(key)
+    }
+
+    /// Returns all user attributes.
+    #[must_use]
+    pub fn user_attrs(&self) -> &HashMap<String, AttrValue> {
+        &self.user_attrs
     }
 }
 

@@ -13,6 +13,7 @@ fn trial_with_values(id: u64, intermediate_values: Vec<(u64, f64)>) -> Completed
         HashMap::new(),
         0.0,
         intermediate_values,
+        HashMap::new(),
     )
 }
 

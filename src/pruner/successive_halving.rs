@@ -240,6 +240,7 @@ mod tests {
             HashMap::new(),
             0.0,
             values.to_vec(),
+            HashMap::new(),
         )
     }
 
