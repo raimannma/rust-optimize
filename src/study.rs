@@ -1688,6 +1688,7 @@ impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
     ///
     /// Returns an I/O error if the file cannot be created or written.
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let path = path.as_ref();
         let snapshot = StudySnapshot {
             version: 1,
             direction: self.direction,
@@ -1695,8 +1696,51 @@ impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
             next_trial_id: self.next_trial_id.load(Ordering::Relaxed),
             metadata: HashMap::new(),
         };
-        let file = std::fs::File::create(path)?;
-        serde_json::to_writer_pretty(file, &snapshot).map_err(std::io::Error::other)
+
+        // Atomic write: write to a temp file in the same directory, then rename.
+        // This prevents corrupt files if the process crashes mid-write.
+        let parent = path.parent().unwrap_or(std::path::Path::new("."));
+        let tmp_path = parent.join(format!(
+            ".{}.tmp",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        let file = std::fs::File::create(&tmp_path)?;
+        serde_json::to_writer_pretty(file, &snapshot).map_err(std::io::Error::other)?;
+        std::fs::rename(&tmp_path, path)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<V: PartialOrd + Clone + Default + serde::Serialize> Study<V> {
+    /// Runs optimization with automatic checkpointing every `interval` trials.
+    ///
+    /// This is convenience sugar over [`optimize_with_callback`](Self::optimize_with_callback)
+    /// combined with [`save`](Self::save). The checkpoint is written atomically so
+    /// a crash mid-write will never leave a corrupt file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the optimization itself fails (see
+    /// [`optimize`](Self::optimize) for details). Checkpoint I/O errors are
+    /// silently ignored (best-effort).
+    pub fn optimize_with_checkpoint<F, E>(
+        &self,
+        n_trials: usize,
+        checkpoint_interval: usize,
+        checkpoint_path: impl AsRef<std::path::Path>,
+        objective: F,
+    ) -> crate::Result<()>
+    where
+        F: FnMut(&mut Trial) -> core::result::Result<V, E>,
+        E: ToString + 'static,
+    {
+        let path = checkpoint_path.as_ref().to_owned();
+        self.optimize_with_callback(n_trials, objective, |study, _trial| {
+            if study.n_trials().is_multiple_of(checkpoint_interval) {
+                let _ = study.save(&path);
+            }
+            ControlFlow::Continue(())
+        })
     }
 }
 
