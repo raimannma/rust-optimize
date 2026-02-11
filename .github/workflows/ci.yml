@@ -71,7 +71,7 @@ jobs:
       - name: Run async example (async_api_optimization)
         run: cargo run --example async_api_optimization --features async
       - name: Run visualization example (visualization_demo)
-        run: cargo run --example visualization_demo --features visualization
+        run: cargo run --example visualization_demo
 
   docs:
     name: Docs
