@@ -2,6 +2,8 @@
 
 pub mod grid;
 pub mod random;
+#[cfg(feature = "sobol")]
+pub mod sobol;
 pub mod tpe;
 
 use std::collections::HashMap;

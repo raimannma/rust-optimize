@@ -17,6 +17,7 @@
 //! - **Random Search** - Simple random sampling for baseline comparisons
 //! - **TPE (Tree-Parzen Estimator)** - Bayesian optimization for efficient search
 //! - **Grid Search** - Exhaustive search over a specified parameter grid
+//! - **Sobol (QMC)** - Quasi-random sampling for better space coverage (requires `sobol` feature)
 //!
 //! Additional features include:
 //!
@@ -183,6 +184,7 @@
 //! - `async`: Enable async optimization methods (requires tokio)
 //! - `derive`: Enable `#[derive(Categorical)]` for enum parameters
 //! - `serde`: Enable `Serialize`/`Deserialize` on public types and `Study::save()`/`Study::load()`
+//! - `sobol`: Enable the Sobol quasi-random sampler for better space coverage
 //! - `tracing`: Emit structured log events via the [`tracing`](https://docs.rs/tracing) crate at key optimization points
 
 /// Emit a `tracing::info!` event when the `tracing` feature is enabled.
@@ -234,6 +236,8 @@ pub use pruner::{
 pub use sampler::CompletedTrial;
 pub use sampler::grid::GridSearchSampler;
 pub use sampler::random::RandomSampler;
+#[cfg(feature = "sobol")]
+pub use sampler::sobol::SobolSampler;
 pub use sampler::tpe::TpeSampler;
 pub use study::Study;
 #[cfg(feature = "serde")]
@@ -262,6 +266,8 @@ pub mod prelude {
     pub use crate::sampler::CompletedTrial;
     pub use crate::sampler::grid::GridSearchSampler;
     pub use crate::sampler::random::RandomSampler;
+    #[cfg(feature = "sobol")]
+    pub use crate::sampler::sobol::SobolSampler;
     pub use crate::sampler::tpe::TpeSampler;
     pub use crate::study::Study;
     #[cfg(feature = "serde")]
