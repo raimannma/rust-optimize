@@ -8,12 +8,14 @@ mod median;
 mod nop;
 mod patient;
 pub(crate) mod percentile;
+mod successive_halving;
 mod threshold;
 
 pub use median::MedianPruner;
 pub use nop::NopPruner;
 pub use patient::PatientPruner;
 pub use percentile::PercentilePruner;
+pub use successive_halving::SuccessiveHalvingPruner;
 pub use threshold::ThresholdPruner;
 
 use crate::sampler::CompletedTrial;
