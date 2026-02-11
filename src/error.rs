@@ -76,6 +76,15 @@ pub enum Error {
     #[error("trial was pruned")]
     TrialPruned,
 
+    /// Returned when the objective returns the wrong number of values.
+    #[error("objective dimension mismatch: expected {expected} values, got {got}")]
+    ObjectiveDimensionMismatch {
+        /// The expected number of objective values.
+        expected: usize,
+        /// The actual number of objective values returned.
+        got: usize,
+    },
+
     /// Returned when an internal invariant is violated.
     #[error("internal error: {0}")]
     Internal(&'static str),

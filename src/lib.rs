@@ -20,6 +20,7 @@
 //! - **Sobol (QMC)** - Quasi-random sampling for better space coverage (requires `sobol` feature)
 //! - **CMA-ES** - Covariance Matrix Adaptation Evolution Strategy for continuous optimization (requires `cma-es` feature)
 //! - **BOHB** - Bayesian Optimization + `HyperBand` for budget-aware TPE sampling
+//! - **NSGA-II** - Non-dominated Sorting Genetic Algorithm II for multi-objective optimization
 //!
 //! Additional features include:
 //!
@@ -218,8 +219,10 @@ mod distribution;
 mod error;
 mod importance;
 mod kde;
+pub mod multi_objective;
 mod param;
 pub mod parameter;
+mod pareto;
 pub mod pruner;
 pub mod sampler;
 mod study;
@@ -227,6 +230,7 @@ mod trial;
 mod types;
 
 pub use error::{Error, Result, TrialPruned};
+pub use multi_objective::{MultiObjectiveSampler, MultiObjectiveStudy, MultiObjectiveTrial};
 #[cfg(feature = "derive")]
 pub use optimizer_derive::Categorical;
 pub use param::ParamValue;
@@ -242,6 +246,7 @@ pub use sampler::bohb::BohbSampler;
 #[cfg(feature = "cma-es")]
 pub use sampler::cma_es::CmaEsSampler;
 pub use sampler::grid::GridSearchSampler;
+pub use sampler::nsga2::Nsga2Sampler;
 pub use sampler::random::RandomSampler;
 #[cfg(feature = "sobol")]
 pub use sampler::sobol::SobolSampler;
@@ -262,6 +267,7 @@ pub mod prelude {
     pub use optimizer_derive::Categorical as DeriveCategory;
 
     pub use crate::error::{Error, Result, TrialPruned};
+    pub use crate::multi_objective::{MultiObjectiveStudy, MultiObjectiveTrial};
     pub use crate::param::ParamValue;
     pub use crate::parameter::{
         BoolParam, Categorical, CategoricalParam, EnumParam, FloatParam, IntParam, Parameter,
@@ -275,6 +281,7 @@ pub mod prelude {
     #[cfg(feature = "cma-es")]
     pub use crate::sampler::cma_es::CmaEsSampler;
     pub use crate::sampler::grid::GridSearchSampler;
+    pub use crate::sampler::nsga2::Nsga2Sampler;
     pub use crate::sampler::random::RandomSampler;
     #[cfg(feature = "sobol")]
     pub use crate::sampler::sobol::SobolSampler;
