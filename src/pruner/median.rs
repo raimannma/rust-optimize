@@ -1,4 +1,5 @@
 use super::Pruner;
+use super::percentile::compute_percentile;
 use crate::sampler::CompletedTrial;
 use crate::types::{Direction, TrialState};
 
@@ -8,6 +9,8 @@ use crate::types::{Direction, TrialState};
 /// This is the most commonly used pruner. It compares the current trial's
 /// intermediate value at each step with the median of all completed trials'
 /// values at that same step.
+///
+/// Equivalent to `PercentilePruner::new(50.0, direction)`.
 ///
 /// # Examples
 ///
@@ -92,8 +95,8 @@ impl Pruner for MedianPruner {
             return false;
         }
 
-        // 4. Compute median
-        let median = compute_median(&mut values_at_step);
+        // 4. Compute median (50th percentile)
+        let median = compute_percentile(&mut values_at_step, 50.0);
 
         // 5. Compare against median based on direction
         match self.direction {
@@ -103,33 +106,22 @@ impl Pruner for MedianPruner {
     }
 }
 
-/// Compute the median of a non-empty slice. Sorts the slice in place.
-fn compute_median(values: &mut [f64]) -> f64 {
-    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
-    let len = values.len();
-    if len % 2 == 1 {
-        values[len / 2]
-    } else {
-        f64::midpoint(values[len / 2 - 1], values[len / 2])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn compute_median_odd() {
-        assert!((compute_median(&mut [3.0, 1.0, 2.0]) - 2.0).abs() < f64::EPSILON);
+        assert!((compute_percentile(&mut [3.0, 1.0, 2.0], 50.0) - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn compute_median_even() {
-        assert!((compute_median(&mut [4.0, 1.0, 3.0, 2.0]) - 2.5).abs() < f64::EPSILON);
+        assert!((compute_percentile(&mut [4.0, 1.0, 3.0, 2.0], 50.0) - 2.5).abs() < f64::EPSILON);
     }
 
     #[test]
     fn compute_median_single() {
-        assert!((compute_median(&mut [5.0]) - 5.0).abs() < f64::EPSILON);
+        assert!((compute_percentile(&mut [5.0], 50.0) - 5.0).abs() < f64::EPSILON);
     }
 }

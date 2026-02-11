@@ -6,10 +6,12 @@
 
 mod median;
 mod nop;
+pub(crate) mod percentile;
 mod threshold;
 
 pub use median::MedianPruner;
 pub use nop::NopPruner;
+pub use percentile::PercentilePruner;
 pub use threshold::ThresholdPruner;
 
 use crate::sampler::CompletedTrial;
