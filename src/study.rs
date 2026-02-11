@@ -2038,7 +2038,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NoCompletedTrials`] if fewer than 2 trials have completed.
+    /// Returns [`crate::Error::NoCompletedTrials`] if fewer than 2 trials have completed.
     #[cfg(feature = "fanova")]
     pub fn fanova(&self) -> crate::Result<crate::fanova::FanovaResult> {
         self.fanova_with_config(&crate::fanova::FanovaConfig::default())
@@ -2051,7 +2051,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NoCompletedTrials`] if fewer than 2 trials have completed.
+    /// Returns [`crate::Error::NoCompletedTrials`] if fewer than 2 trials have completed.
     #[cfg(feature = "fanova")]
     #[allow(clippy::cast_precision_loss)]
     pub fn fanova_with_config(
