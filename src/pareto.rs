@@ -304,10 +304,10 @@ fn hv_recursive(points: &[Vec<f64>], reference: &[f64]) -> f64 {
         // Project points[0..=i] onto the first d-1 dimensions and
         // keep only the non-dominated subset.
         let projected: Vec<Vec<f64>> = sorted[..=i].iter().map(|p| p[..d - 1].to_vec()).collect();
-        let nd = non_dominated_minimize(&projected);
+        let non_dom = non_dominated_minimize(&projected);
 
-        if !nd.is_empty() {
-            result += height * hv_recursive(&nd, &sub_ref);
+        if !non_dom.is_empty() {
+            result += height * hv_recursive(&non_dom, &sub_ref);
         }
     }
 
