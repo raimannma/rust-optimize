@@ -262,7 +262,11 @@ impl Trial {
             return false;
         };
         let history_guard = history.read();
-        pruner.should_prune(self.id, step, &self.intermediate_values, &history_guard)
+        let prune = pruner.should_prune(self.id, step, &self.intermediate_values, &history_guard);
+        if prune {
+            trace_info!(trial_id = self.id, step, "pruner recommends stopping");
+        }
+        prune
     }
 
     /// Returns all intermediate values reported so far.
@@ -366,6 +370,13 @@ impl Trial {
         };
 
         let result = param.cast_param_value(&value)?;
+
+        trace_debug!(
+            trial_id = self.id,
+            param = %param.label(),
+            value = %value,
+            "parameter sampled"
+        );
 
         // Store distribution, value, and label
         self.distributions.insert(param_id, distribution);

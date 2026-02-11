@@ -340,6 +340,24 @@ where
         self.enqueued_params.lock().push_back(params);
     }
 
+    /// Returns the trial ID of the current best trial from the given slice.
+    #[cfg(feature = "tracing")]
+    fn best_id(&self, trials: &[CompletedTrial<V>]) -> Option<u64> {
+        trials
+            .iter()
+            .filter(|t| t.state == TrialState::Complete)
+            .max_by(|a, b| {
+                let ordering = a.value.partial_cmp(&b.value);
+                match self.direction {
+                    Direction::Minimize => {
+                        ordering.map_or(core::cmp::Ordering::Equal, core::cmp::Ordering::reverse)
+                    }
+                    Direction::Maximize => ordering.unwrap_or(core::cmp::Ordering::Equal),
+                }
+            })
+            .map(|t| t.id)
+    }
+
     /// Returns the number of enqueued parameter configurations.
     #[must_use]
     pub fn n_enqueued(&self) -> usize {
@@ -789,18 +807,43 @@ where
         E: ToString + 'static,
         V: Default,
     {
+        #[cfg(feature = "tracing")]
+        let _span =
+            tracing::info_span!("optimize", n_trials, direction = ?self.direction).entered();
+
         for _ in 0..n_trials {
             let mut trial = self.create_trial();
 
             match objective(&mut trial) {
                 Ok(value) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+
+                    #[cfg(feature = "tracing")]
+                    {
+                        tracing::info!(trial_id, "trial completed");
+                        let trials = self.completed_trials.read();
+                        if trials
+                            .iter()
+                            .filter(|t| t.state == TrialState::Complete)
+                            .count()
+                            == 1
+                            || trials.last().map(|t| t.id) == self.best_id(&trials)
+                        {
+                            tracing::info!(trial_id, "new best value found");
+                        }
+                    }
                 }
                 Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     if is_trial_pruned(&e) {
                         self.prune_trial(trial);
+                        trace_info!(trial_id, "trial pruned");
                     } else {
                         self.fail_trial(trial, e.to_string());
+                        trace_debug!(trial_id, "trial failed");
                     }
                 }
             }
@@ -882,17 +925,25 @@ where
         Fut: Future<Output = core::result::Result<(Trial, V), E>>,
         E: ToString,
     {
+        #[cfg(feature = "tracing")]
+        let _span =
+            tracing::info_span!("optimize_async", n_trials, direction = ?self.direction).entered();
+
         for _ in 0..n_trials {
             let trial = self.create_trial();
+            #[cfg(feature = "tracing")]
+            let trial_id = trial.id();
 
             match objective(trial).await {
                 Ok((trial, value)) => {
                     self.complete_trial(trial, value);
+                    trace_info!(trial_id, "trial completed");
                 }
                 Err(e) => {
                     // For async, we don't have the trial back on error
                     // We'll just count this as a failed trial without recording it
                     let _ = e.to_string();
+                    trace_debug!(trial_id, "trial failed");
                 }
             }
         }
@@ -979,6 +1030,9 @@ where
     {
         use tokio::sync::Semaphore;
 
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize_parallel", n_trials, concurrency, direction = ?self.direction).entered();
+
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let objective = Arc::new(objective);
 
@@ -1009,7 +1063,10 @@ where
                 .map_err(|e| crate::Error::TaskError(e.to_string()))?
             {
                 Ok((trial, value)) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+                    trace_info!(trial_id, "trial completed");
                 }
                 Err(e) => {
                     let _ = e.to_string();
@@ -1099,12 +1156,33 @@ where
         C: FnMut(&Study<V>, &CompletedTrial<V>) -> ControlFlow<()>,
         E: ToString + 'static,
     {
+        #[cfg(feature = "tracing")]
+        let _span =
+            tracing::info_span!("optimize", n_trials, direction = ?self.direction).entered();
+
         for _ in 0..n_trials {
             let mut trial = self.create_trial();
 
             match objective(&mut trial) {
                 Ok(value) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+
+                    #[cfg(feature = "tracing")]
+                    {
+                        tracing::info!(trial_id, "trial completed");
+                        let trials = self.completed_trials.read();
+                        if trials
+                            .iter()
+                            .filter(|t| t.state == TrialState::Complete)
+                            .count()
+                            == 1
+                            || trials.last().map(|t| t.id) == self.best_id(&trials)
+                        {
+                            tracing::info!(trial_id, "new best value found");
+                        }
+                    }
 
                     // Get the just-completed trial for the callback
                     let trials = self.completed_trials.read();
@@ -1125,10 +1203,14 @@ where
                     }
                 }
                 Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     if is_trial_pruned(&e) {
                         self.prune_trial(trial);
+                        trace_info!(trial_id, "trial pruned");
                     } else {
                         self.fail_trial(trial, e.to_string());
+                        trace_debug!(trial_id, "trial failed");
                     }
                 }
             }
@@ -1192,19 +1274,29 @@ where
         E: ToString + 'static,
         V: Default,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize", duration_secs = duration.as_secs(), direction = ?self.direction).entered();
+
         let deadline = Instant::now() + duration;
         while Instant::now() < deadline {
             let mut trial = self.create_trial();
 
             match objective(&mut trial) {
                 Ok(value) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+                    trace_info!(trial_id, "trial completed");
                 }
                 Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     if is_trial_pruned(&e) {
                         self.prune_trial(trial);
+                        trace_info!(trial_id, "trial pruned");
                     } else {
                         self.fail_trial(trial, e.to_string());
+                        trace_debug!(trial_id, "trial failed");
                     }
                 }
             }
@@ -1287,13 +1379,33 @@ where
         C: FnMut(&Study<V>, &CompletedTrial<V>) -> ControlFlow<()>,
         E: ToString + 'static,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize", duration_secs = duration.as_secs(), direction = ?self.direction).entered();
+
         let deadline = Instant::now() + duration;
         while Instant::now() < deadline {
             let mut trial = self.create_trial();
 
             match objective(&mut trial) {
                 Ok(value) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+
+                    #[cfg(feature = "tracing")]
+                    {
+                        tracing::info!(trial_id, "trial completed");
+                        let trials = self.completed_trials.read();
+                        if trials
+                            .iter()
+                            .filter(|t| t.state == TrialState::Complete)
+                            .count()
+                            == 1
+                            || trials.last().map(|t| t.id) == self.best_id(&trials)
+                        {
+                            tracing::info!(trial_id, "new best value found");
+                        }
+                    }
 
                     let trials = self.completed_trials.read();
                     let Some(completed) = trials.last() else {
@@ -1310,10 +1422,14 @@ where
                     }
                 }
                 Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     if is_trial_pruned(&e) {
                         self.prune_trial(trial);
+                        trace_info!(trial_id, "trial pruned");
                     } else {
                         self.fail_trial(trial, e.to_string());
+                        trace_debug!(trial_id, "trial failed");
                     }
                 }
             }
@@ -1356,16 +1472,23 @@ where
         Fut: Future<Output = core::result::Result<(Trial, V), E>>,
         E: ToString,
     {
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize_until_async", duration_secs = duration.as_secs(), direction = ?self.direction).entered();
+
         let deadline = Instant::now() + duration;
         while Instant::now() < deadline {
             let trial = self.create_trial();
+            #[cfg(feature = "tracing")]
+            let trial_id = trial.id();
 
             match objective(trial).await {
                 Ok((trial, value)) => {
                     self.complete_trial(trial, value);
+                    trace_info!(trial_id, "trial completed");
                 }
                 Err(e) => {
                     let _ = e.to_string();
+                    trace_debug!(trial_id, "trial failed");
                 }
             }
         }
@@ -1415,6 +1538,9 @@ where
     {
         use tokio::sync::Semaphore;
 
+        #[cfg(feature = "tracing")]
+        let _span = tracing::info_span!("optimize_until_parallel", duration_secs = duration.as_secs(), concurrency, direction = ?self.direction).entered();
+
         let deadline = Instant::now() + duration;
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let objective = Arc::new(objective);
@@ -1445,7 +1571,10 @@ where
                 .map_err(|e| crate::Error::TaskError(e.to_string()))?
             {
                 Ok((trial, value)) => {
+                    #[cfg(feature = "tracing")]
+                    let trial_id = trial.id();
                     self.complete_trial(trial, value);
+                    trace_info!(trial_id, "trial completed");
                 }
                 Err(e) => {
                     let _ = e.to_string();

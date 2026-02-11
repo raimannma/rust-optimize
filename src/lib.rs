@@ -183,6 +183,31 @@
 //! - `async`: Enable async optimization methods (requires tokio)
 //! - `derive`: Enable `#[derive(Categorical)]` for enum parameters
 //! - `serde`: Enable `Serialize`/`Deserialize` on public types and `Study::save()`/`Study::load()`
+//! - `tracing`: Emit structured log events via the [`tracing`](https://docs.rs/tracing) crate at key optimization points
+
+/// Emit a `tracing::info!` event when the `tracing` feature is enabled.
+/// No-op otherwise.
+#[cfg(feature = "tracing")]
+macro_rules! trace_info {
+    ($($arg:tt)*) => { tracing::info!($($arg)*) };
+}
+
+#[cfg(not(feature = "tracing"))]
+macro_rules! trace_info {
+    ($($arg:tt)*) => {};
+}
+
+/// Emit a `tracing::debug!` event when the `tracing` feature is enabled.
+/// No-op otherwise.
+#[cfg(feature = "tracing")]
+macro_rules! trace_debug {
+    ($($arg:tt)*) => { tracing::debug!($($arg)*) };
+}
+
+#[cfg(not(feature = "tracing"))]
+macro_rules! trace_debug {
+    ($($arg:tt)*) => {};
+}
 
 mod distribution;
 mod error;
