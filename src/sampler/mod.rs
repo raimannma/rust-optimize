@@ -1,5 +1,6 @@
 //! Sampler trait and implementations for parameter sampling.
 
+pub mod bohb;
 #[cfg(feature = "cma-es")]
 pub mod cma_es;
 pub mod grid;

@@ -19,6 +19,7 @@
 //! - **Grid Search** - Exhaustive search over a specified parameter grid
 //! - **Sobol (QMC)** - Quasi-random sampling for better space coverage (requires `sobol` feature)
 //! - **CMA-ES** - Covariance Matrix Adaptation Evolution Strategy for continuous optimization (requires `cma-es` feature)
+//! - **BOHB** - Bayesian Optimization + `HyperBand` for budget-aware TPE sampling
 //!
 //! Additional features include:
 //!
@@ -236,6 +237,7 @@ pub use pruner::{
     SuccessiveHalvingPruner, ThresholdPruner, WilcoxonPruner,
 };
 pub use sampler::CompletedTrial;
+pub use sampler::bohb::BohbSampler;
 #[cfg(feature = "cma-es")]
 pub use sampler::cma_es::CmaEsSampler;
 pub use sampler::grid::GridSearchSampler;
@@ -268,6 +270,7 @@ pub mod prelude {
         SuccessiveHalvingPruner, ThresholdPruner,
     };
     pub use crate::sampler::CompletedTrial;
+    pub use crate::sampler::bohb::BohbSampler;
     #[cfg(feature = "cma-es")]
     pub use crate::sampler::cma_es::CmaEsSampler;
     pub use crate::sampler::grid::GridSearchSampler;
