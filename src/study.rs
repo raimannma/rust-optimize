@@ -1812,6 +1812,110 @@ where
     }
 }
 
+impl<V> Study<V>
+where
+    V: PartialOrd + Clone + Into<f64>,
+{
+    /// Computes parameter importance scores using Spearman rank correlation.
+    ///
+    /// For each parameter, the absolute Spearman correlation between its values
+    /// and the objective values is computed across all completed trials. Scores
+    /// are normalized so they sum to 1.0 and sorted in descending order.
+    ///
+    /// Parameters that appear in fewer than 2 trials are omitted.
+    /// Returns an empty `Vec` if the study has fewer than 2 completed trials.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let x = FloatParam::new(0.0, 10.0).name("x");
+    ///
+    /// study
+    ///     .optimize(20, |trial| {
+    ///         let xv = x.suggest(trial)?;
+    ///         Ok::<_, optimizer::Error>(xv * xv)
+    ///     })
+    ///     .unwrap();
+    ///
+    /// let importance = study.param_importance();
+    /// assert_eq!(importance.len(), 1);
+    /// assert_eq!(importance[0].0, "x");
+    /// ```
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn param_importance(&self) -> Vec<(String, f64)> {
+        use std::collections::BTreeSet;
+
+        use crate::importance::spearman;
+        use crate::param::ParamValue;
+        use crate::types::TrialState;
+
+        let trials = self.completed_trials.read();
+        let complete: Vec<_> = trials
+            .iter()
+            .filter(|t| t.state == TrialState::Complete)
+            .collect();
+
+        if complete.len() < 2 {
+            return Vec::new();
+        }
+
+        // Collect all parameter IDs across trials.
+        let all_param_ids: BTreeSet<_> = complete.iter().flat_map(|t| t.params.keys()).collect();
+
+        let mut scores: Vec<(String, f64)> = Vec::new();
+
+        for &param_id in &all_param_ids {
+            // Collect (param_value_f64, objective_f64) for trials that have this param.
+            let mut param_vals = Vec::new();
+            let mut obj_vals = Vec::new();
+
+            for trial in &complete {
+                if let Some(pv) = trial.params.get(param_id) {
+                    let f = match *pv {
+                        ParamValue::Float(v) => v,
+                        ParamValue::Int(v) => v as f64,
+                        ParamValue::Categorical(v) => v as f64,
+                    };
+                    param_vals.push(f);
+                    obj_vals.push(trial.value.clone().into());
+                }
+            }
+
+            if param_vals.len() < 2 {
+                continue;
+            }
+
+            let corr = spearman(&param_vals, &obj_vals).abs();
+
+            // Determine label: use param_labels if available, else "param_{id}".
+            let label = complete
+                .iter()
+                .find_map(|t| t.param_labels.get(param_id))
+                .map_or_else(|| param_id.to_string(), Clone::clone);
+
+            scores.push((label, corr));
+        }
+
+        // Normalize so scores sum to 1.0.
+        let sum: f64 = scores.iter().map(|(_, s)| *s).sum();
+        if sum > 0.0 {
+            for entry in &mut scores {
+                entry.1 /= sum;
+            }
+        }
+
+        // Sort descending by score.
+        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
+
+        scores
+    }
+}
+
 impl<V> IntoIterator for &Study<V>
 where
     V: PartialOrd + Clone,

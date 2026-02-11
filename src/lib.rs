@@ -216,6 +216,7 @@ macro_rules! trace_debug {
 
 mod distribution;
 mod error;
+mod importance;
 mod kde;
 mod param;
 pub mod parameter;
