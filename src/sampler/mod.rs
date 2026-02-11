@@ -4,11 +4,14 @@ pub mod bohb;
 #[cfg(feature = "cma-es")]
 pub mod cma_es;
 pub mod differential_evolution;
+pub(crate) mod genetic;
 #[cfg(feature = "gp")]
 pub mod gp;
 pub mod grid;
+pub mod moead;
 pub mod motpe;
 pub mod nsga2;
+pub mod nsga3;
 pub mod random;
 #[cfg(feature = "sobol")]
 pub mod sobol;

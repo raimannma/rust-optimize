@@ -1,9 +1,11 @@
 //! Integration tests for multi-objective optimization.
 
-use optimizer::Direction;
 use optimizer::multi_objective::MultiObjectiveStudy;
 use optimizer::parameter::{CategoricalParam, FloatParam, Parameter};
+use optimizer::sampler::moead::MoeadSampler;
 use optimizer::sampler::nsga2::Nsga2Sampler;
+use optimizer::sampler::nsga3::Nsga3Sampler;
+use optimizer::{Decomposition, Direction};
 
 // ---------------------------------------------------------------------------
 // Pareto utility tests (via public MultiObjectiveStudy)
@@ -390,4 +392,347 @@ fn test_tell_with_failure() {
 
     // Failed trial not counted
     assert_eq!(study.n_trials(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// NSGA-III sampler tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_nsga3_zdt1() {
+    let n_vars = 5;
+    let params: Vec<FloatParam> = (0..n_vars).map(|_| FloatParam::new(0.0, 1.0)).collect();
+
+    let sampler = Nsga3Sampler::builder().population_size(20).seed(42).build();
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+
+    study
+        .optimize(200, |trial| {
+            let xs: Vec<f64> = params
+                .iter()
+                .map(|p| p.suggest(trial))
+                .collect::<Result<_, _>>()?;
+
+            let f1 = xs[0];
+            let g = 1.0 + 9.0 * xs[1..].iter().sum::<f64>() / (n_vars - 1) as f64;
+            let f2 = g * (1.0 - (f1 / g).sqrt());
+            Ok::<_, optimizer::Error>(vec![f1, f2])
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(
+        !front.is_empty(),
+        "NSGA-III Pareto front should be non-empty"
+    );
+
+    // Verify no dominated solutions in the front
+    for a in &front {
+        for b in &front {
+            if core::ptr::eq(a, b) {
+                continue;
+            }
+            let a_dom_b = a.values[0] <= b.values[0]
+                && a.values[1] <= b.values[1]
+                && (a.values[0] < b.values[0] || a.values[1] < b.values[1]);
+            assert!(
+                !a_dom_b,
+                "Front solution {:?} dominates {:?}",
+                a.values, b.values
+            );
+        }
+    }
+}
+
+#[test]
+fn test_nsga3_four_objectives() {
+    // DTLZ2 with 4 objectives
+    let n_obj = 4;
+    let n_vars = n_obj + 4; // k = 5 decision variables beyond the first (n_obj-1)
+    let params: Vec<FloatParam> = (0..n_vars).map(|_| FloatParam::new(0.0, 1.0)).collect();
+
+    let sampler = Nsga3Sampler::builder().population_size(50).seed(42).build();
+    let directions = vec![Direction::Minimize; n_obj];
+    let study = MultiObjectiveStudy::with_sampler(directions, sampler);
+
+    study
+        .optimize(500, |trial| {
+            let xs: Vec<f64> = params
+                .iter()
+                .map(|p| p.suggest(trial))
+                .collect::<Result<_, _>>()?;
+
+            // DTLZ2 formulation
+            let g: f64 = xs[n_obj - 1..]
+                .iter()
+                .map(|&xi| (xi - 0.5).powi(2))
+                .sum::<f64>();
+
+            let mut objectives = vec![0.0_f64; n_obj];
+            for i in 0..n_obj {
+                let mut f = 1.0 + g;
+                for xj in &xs[..(n_obj - 1 - i)] {
+                    f *= (xj * core::f64::consts::FRAC_PI_2).cos();
+                }
+                if i > 0 {
+                    f *= (xs[n_obj - 1 - i] * core::f64::consts::FRAC_PI_2).sin();
+                }
+                objectives[i] = f;
+            }
+
+            Ok::<_, optimizer::Error>(objectives)
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(!front.is_empty(), "4-objective front should be non-empty");
+    // All front solutions should have 4 objectives
+    for t in &front {
+        assert_eq!(t.values.len(), 4);
+    }
+}
+
+#[test]
+fn test_nsga3_reproducible() {
+    let x = FloatParam::new(0.0, 1.0);
+    let y = FloatParam::new(0.0, 1.0);
+
+    let run = |seed: u64| -> Vec<Vec<f64>> {
+        let sampler = Nsga3Sampler::with_seed(seed);
+        let study = MultiObjectiveStudy::with_sampler(
+            vec![Direction::Minimize, Direction::Minimize],
+            sampler,
+        );
+        study
+            .optimize(30, |trial| {
+                let xv = x.suggest(trial)?;
+                let yv = y.suggest(trial)?;
+                Ok::<_, optimizer::Error>(vec![xv, yv])
+            })
+            .unwrap();
+        study.trials().iter().map(|t| t.values.clone()).collect()
+    };
+
+    let r1 = run(123);
+    let r2 = run(123);
+    assert_eq!(r1, r2, "Same seed should produce same results");
+
+    let r3 = run(456);
+    assert_ne!(r1, r3, "Different seeds should produce different results");
+}
+
+#[test]
+fn test_nsga3_builder() {
+    let sampler = Nsga3Sampler::builder()
+        .population_size(12)
+        .n_divisions(4)
+        .crossover_prob(0.9)
+        .crossover_eta(20.0)
+        .mutation_eta(20.0)
+        .seed(42)
+        .build();
+
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+    let x = FloatParam::new(0.0, 1.0);
+
+    study
+        .optimize(30, |trial| {
+            let xv = x.suggest(trial)?;
+            Ok::<_, optimizer::Error>(vec![xv, 1.0 - xv])
+        })
+        .unwrap();
+
+    assert_eq!(study.n_trials(), 30);
+}
+
+#[test]
+fn test_nsga3_constraints() {
+    let sampler = Nsga3Sampler::with_seed(42);
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+
+    let x = FloatParam::new(0.0, 1.0);
+
+    study
+        .optimize(50, |trial| {
+            let xv = x.suggest(trial)?;
+            trial.set_constraints(vec![0.3 - xv]);
+            Ok::<_, optimizer::Error>(vec![xv, 1.0 - xv])
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(!front.is_empty());
+
+    let feasible_count = front.iter().filter(|t| t.is_feasible()).count();
+    assert!(
+        feasible_count > 0,
+        "Should have feasible solutions on front"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MOEA/D sampler tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_moead_zdt1_tchebycheff() {
+    let n_vars = 5;
+    let params: Vec<FloatParam> = (0..n_vars).map(|_| FloatParam::new(0.0, 1.0)).collect();
+
+    let sampler = MoeadSampler::builder().population_size(20).seed(42).build();
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+
+    study
+        .optimize(200, |trial| {
+            let xs: Vec<f64> = params
+                .iter()
+                .map(|p| p.suggest(trial))
+                .collect::<Result<_, _>>()?;
+
+            let f1 = xs[0];
+            let g = 1.0 + 9.0 * xs[1..].iter().sum::<f64>() / (n_vars - 1) as f64;
+            let f2 = g * (1.0 - (f1 / g).sqrt());
+            Ok::<_, optimizer::Error>(vec![f1, f2])
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(!front.is_empty(), "MOEA/D Pareto front should be non-empty");
+
+    for a in &front {
+        for b in &front {
+            if core::ptr::eq(a, b) {
+                continue;
+            }
+            let a_dom_b = a.values[0] <= b.values[0]
+                && a.values[1] <= b.values[1]
+                && (a.values[0] < b.values[0] || a.values[1] < b.values[1]);
+            assert!(
+                !a_dom_b,
+                "Front solution {:?} dominates {:?}",
+                a.values, b.values
+            );
+        }
+    }
+}
+
+#[test]
+fn test_moead_zdt1_weighted_sum() {
+    let n_vars = 3;
+    let params: Vec<FloatParam> = (0..n_vars).map(|_| FloatParam::new(0.0, 1.0)).collect();
+
+    let sampler = MoeadSampler::builder()
+        .population_size(20)
+        .decomposition(Decomposition::WeightedSum)
+        .seed(42)
+        .build();
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+
+    study
+        .optimize(200, |trial| {
+            let xs: Vec<f64> = params
+                .iter()
+                .map(|p| p.suggest(trial))
+                .collect::<Result<_, _>>()?;
+
+            let f1 = xs[0];
+            let g = 1.0 + 9.0 * xs[1..].iter().sum::<f64>() / (n_vars - 1) as f64;
+            let f2 = g * (1.0 - (f1 / g).sqrt());
+            Ok::<_, optimizer::Error>(vec![f1, f2])
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(!front.is_empty());
+}
+
+#[test]
+fn test_moead_zdt1_pbi() {
+    let n_vars = 3;
+    let params: Vec<FloatParam> = (0..n_vars).map(|_| FloatParam::new(0.0, 1.0)).collect();
+
+    let sampler = MoeadSampler::builder()
+        .population_size(20)
+        .decomposition(Decomposition::Pbi { theta: 5.0 })
+        .seed(42)
+        .build();
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+
+    study
+        .optimize(200, |trial| {
+            let xs: Vec<f64> = params
+                .iter()
+                .map(|p| p.suggest(trial))
+                .collect::<Result<_, _>>()?;
+
+            let f1 = xs[0];
+            let g = 1.0 + 9.0 * xs[1..].iter().sum::<f64>() / (n_vars - 1) as f64;
+            let f2 = g * (1.0 - (f1 / g).sqrt());
+            Ok::<_, optimizer::Error>(vec![f1, f2])
+        })
+        .unwrap();
+
+    let front = study.pareto_front();
+    assert!(!front.is_empty());
+}
+
+#[test]
+fn test_moead_reproducible() {
+    let x = FloatParam::new(0.0, 1.0);
+    let y = FloatParam::new(0.0, 1.0);
+
+    let run = |seed: u64| -> Vec<Vec<f64>> {
+        let sampler = MoeadSampler::with_seed(seed);
+        let study = MultiObjectiveStudy::with_sampler(
+            vec![Direction::Minimize, Direction::Minimize],
+            sampler,
+        );
+        study
+            .optimize(30, |trial| {
+                let xv = x.suggest(trial)?;
+                let yv = y.suggest(trial)?;
+                Ok::<_, optimizer::Error>(vec![xv, yv])
+            })
+            .unwrap();
+        study.trials().iter().map(|t| t.values.clone()).collect()
+    };
+
+    let r1 = run(123);
+    let r2 = run(123);
+    assert_eq!(r1, r2, "Same seed should produce same results");
+
+    let r3 = run(456);
+    assert_ne!(r1, r3, "Different seeds should produce different results");
+}
+
+#[test]
+fn test_moead_builder() {
+    let sampler = MoeadSampler::builder()
+        .population_size(15)
+        .neighborhood_size(5)
+        .decomposition(Decomposition::Tchebycheff)
+        .crossover_prob(0.9)
+        .crossover_eta(20.0)
+        .mutation_eta(20.0)
+        .seed(42)
+        .build();
+
+    let study =
+        MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+    let x = FloatParam::new(0.0, 1.0);
+
+    study
+        .optimize(30, |trial| {
+            let xv = x.suggest(trial)?;
+            Ok::<_, optimizer::Error>(vec![xv, 1.0 - xv])
+        })
+        .unwrap();
+
+    assert_eq!(study.n_trials(), 30);
 }

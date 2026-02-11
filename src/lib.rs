@@ -23,6 +23,8 @@
 //! - **GP** - Gaussian Process Bayesian optimization with Expected Improvement (requires `gp` feature)
 //! - **BOHB** - Bayesian Optimization + `HyperBand` for budget-aware TPE sampling
 //! - **NSGA-II** - Non-dominated Sorting Genetic Algorithm II for multi-objective optimization
+//! - **NSGA-III** - Reference-point-based NSGA for many-objective (3+) optimization
+//! - **MOEA/D** - Decomposition-based multi-objective with Tchebycheff, Weighted Sum, or PBI
 //! - **MOTPE** - Multi-Objective Tree-Parzen Estimator for Bayesian multi-objective optimization
 //!
 //! Additional features include:
@@ -261,8 +263,10 @@ pub use sampler::differential_evolution::{
 #[cfg(feature = "gp")]
 pub use sampler::gp::GpSampler;
 pub use sampler::grid::GridSearchSampler;
+pub use sampler::moead::{Decomposition, MoeadSampler};
 pub use sampler::motpe::MotpeSampler;
 pub use sampler::nsga2::Nsga2Sampler;
+pub use sampler::nsga3::Nsga3Sampler;
 pub use sampler::random::RandomSampler;
 #[cfg(feature = "sobol")]
 pub use sampler::sobol::SobolSampler;
@@ -309,8 +313,10 @@ pub mod prelude {
     #[cfg(feature = "gp")]
     pub use crate::sampler::gp::GpSampler;
     pub use crate::sampler::grid::GridSearchSampler;
+    pub use crate::sampler::moead::{Decomposition, MoeadSampler};
     pub use crate::sampler::motpe::MotpeSampler;
     pub use crate::sampler::nsga2::Nsga2Sampler;
+    pub use crate::sampler::nsga3::Nsga3Sampler;
     pub use crate::sampler::random::RandomSampler;
     #[cfg(feature = "sobol")]
     pub use crate::sampler::sobol::SobolSampler;
