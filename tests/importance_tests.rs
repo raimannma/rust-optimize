@@ -1,9 +1,10 @@
 use optimizer::parameter::{CategoricalParam, FloatParam, IntParam, Parameter};
+use optimizer::sampler::random::RandomSampler;
 use optimizer::{Direction, Study};
 
 #[test]
 fn known_perfect_correlation() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let x = FloatParam::new(0.0, 100.0).name("x");
 
     // Objective = x, so perfect correlation.
@@ -24,7 +25,7 @@ fn known_perfect_correlation() {
 
 #[test]
 fn no_effect_parameter() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let x = FloatParam::new(0.0, 100.0).name("x");
     let noise = FloatParam::new(0.0, 100.0).name("noise");
 
@@ -51,7 +52,7 @@ fn no_effect_parameter() {
 
 #[test]
 fn multiple_parameters_varying_importance() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let x = FloatParam::new(0.0, 10.0).name("x");
     let y = FloatParam::new(0.0, 10.0).name("y");
 
@@ -86,7 +87,7 @@ fn fewer_than_two_trials_returns_empty() {
 
 #[test]
 fn int_parameter() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let n = IntParam::new(1, 100).name("n");
 
     for _ in 0..30 {
@@ -103,7 +104,7 @@ fn int_parameter() {
 
 #[test]
 fn categorical_parameter() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let cat = CategoricalParam::new(vec!["a", "b", "c"]).name("cat");
     let x = FloatParam::new(0.0, 100.0).name("x");
 
@@ -123,7 +124,7 @@ fn categorical_parameter() {
 
 #[test]
 fn normalization_sums_to_one() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     let x = FloatParam::new(0.0, 10.0).name("x");
     let y = FloatParam::new(0.0, 10.0).name("y");
     let z = FloatParam::new(0.0, 10.0).name("z");
@@ -146,7 +147,7 @@ fn normalization_sums_to_one() {
 
 #[test]
 fn label_when_unnamed_uses_debug() {
-    let study: Study<f64> = Study::new(Direction::Minimize);
+    let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
     // No .name() call → label defaults to Debug representation.
     let x = FloatParam::new(0.0, 10.0);
 
