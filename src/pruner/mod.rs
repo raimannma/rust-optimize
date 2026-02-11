@@ -5,8 +5,10 @@
 //! discarding unpromising trials before they complete, saving compute.
 
 mod nop;
+mod threshold;
 
 pub use nop::NopPruner;
+pub use threshold::ThresholdPruner;
 
 use crate::sampler::CompletedTrial;
 
