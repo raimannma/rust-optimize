@@ -1,22 +1,66 @@
 //! Differential Evolution (DE) sampler.
 //!
-//! DE is a population-based metaheuristic that maintains a population of
-//! candidate solutions and creates new candidates by combining (mutating +
-//! crossing over) existing ones. It is competitive with CMA-ES on many
-//! problems and simpler to implement.
+//! DE is a population-based metaheuristic that maintains a pool of candidate
+//! solutions and creates new candidates through **mutation** (combining
+//! difference vectors of existing members) and **binomial crossover**. A
+//! trial vector replaces its parent only if it achieves a better objective
+//! value, guaranteeing monotonic improvement of the population.
 //!
-//! Categorical parameters are sampled uniformly at random (not part of the
-//! DE vector). If all parameters are categorical, the sampler falls back to
-//! pure random sampling.
+//! # Algorithm overview
+//!
+//! Each generation, for every population member *xᵢ*:
+//! 1. **Mutation** — create a mutant vector *v* from other population
+//!    members using the selected [`DifferentialEvolutionStrategy`]:
+//!    - `Rand1`:  `v = x_r1 + F * (x_r2 - x_r3)`
+//!    - `Best1`:  `v = x_best + F * (x_r1 - x_r2)`
+//!    - `CurrentToBest1`:  `v = x_i + F * (x_best - x_i) + F * (x_r1 - x_r2)`
+//! 2. **Crossover** — create a trial vector *u* by mixing *v* and *xᵢ*
+//!    dimension-by-dimension with probability CR.
+//! 3. **Selection** — replace *xᵢ* with *u* if `f(u) ≤ f(xᵢ)`.
+//!
+//! # When to use
+//!
+//! - **Continuous parameters** (float/int). Categorical parameters are
+//!   sampled uniformly at random and do not participate in DE.
+//! - **Moderate to large search spaces** — DE scales better than GP-based
+//!   methods to higher dimensions, though it may need more evaluations.
+//! - **Multi-modal landscapes** — the `Rand1` strategy maintains diversity
+//!   and avoids premature convergence.
+//! - **No feature flags required** — DE is available with default features.
+//!
+//! For non-separable problems in moderate dimensions, consider
+//! [`CmaEsSampler`](super::cma_es::CmaEsSampler) which learns parameter
+//! correlations. For expensive functions with few dimensions, consider
+//! [`GpSampler`](super::gp::GpSampler).
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `population_size` | `max(10n, 15)` | Candidates per generation |
+//! | `mutation_factor` (F) | 0.8 | Differential amplification — higher = more exploration |
+//! | `crossover_rate` (CR) | 0.9 | Probability of taking a dimension from the mutant |
+//! | `strategy` | `Rand1` | Mutation strategy (see [`DifferentialEvolutionStrategy`]) |
+//! | `seed` | random | RNG seed for reproducibility |
 //!
 //! # Examples
 //!
 //! ```
-//! use optimizer::sampler::differential_evolution::DifferentialEvolutionSampler;
+//! use optimizer::sampler::differential_evolution::{
+//!     DifferentialEvolutionSampler, DifferentialEvolutionStrategy,
+//! };
 //! use optimizer::{Direction, Study};
 //!
-//! let sampler = DifferentialEvolutionSampler::with_seed(42);
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+//! // Minimize with DE using the Best1 strategy for faster convergence
+//! let sampler = DifferentialEvolutionSampler::builder()
+//!     .mutation_factor(0.7)
+//!     .crossover_rate(0.9)
+//!     .strategy(DifferentialEvolutionStrategy::Best1)
+//!     .population_size(20)
+//!     .seed(42)
+//!     .build();
+//!
+//! let mut study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 //! ```
 
 use std::collections::HashMap;

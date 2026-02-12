@@ -1,4 +1,26 @@
 //! Parameter importance via Spearman rank correlation.
+//!
+//! Compute the absolute Spearman rank correlation between each parameter
+//! and the objective value to estimate which parameters most influence
+//! the outcome. This is a lightweight, non-parametric alternative to
+//! [`fANOVA`](crate::fanova) that works well for monotonic relationships.
+//!
+//! # How it works
+//!
+//! 1. Rank parameter values and objective values independently
+//! 2. Compute the Pearson correlation on the ranks (= Spearman ρ)
+//! 3. Take the absolute value (direction of correlation is not relevant
+//!    for importance)
+//!
+//! # When to use
+//!
+//! - **Quick importance check**: call
+//!   [`Study::param_importance()`](crate::Study::param_importance) after
+//!   optimization for a fast, interpretable ranking
+//! - **Monotonic relationships**: Spearman captures monotonic (not just
+//!   linear) correlations but may miss non-monotonic effects or interactions
+//! - For interaction detection or non-linear importance, use
+//!   [`fANOVA`](crate::fanova) instead
 
 /// Assign average ranks to a slice of `f64` values (handles ties).
 #[allow(clippy::cast_precision_loss, clippy::float_cmp)]

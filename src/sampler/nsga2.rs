@@ -1,7 +1,45 @@
 //! NSGA-II (Non-dominated Sorting Genetic Algorithm II) sampler.
 //!
-//! Implements multi-objective optimization using non-dominated sorting,
-//! crowding distance, SBX crossover, and polynomial mutation.
+//! NSGA-II is one of the most widely used evolutionary multi-objective
+//! optimization algorithms. It ranks the population using **non-dominated
+//! sorting** (fast O(MN²) algorithm) and breaks ties within the same
+//! Pareto front using **crowding distance**, which favors solutions in
+//! less-crowded regions of the objective space.
+//!
+//! # Algorithm
+//!
+//! Each generation proceeds as follows:
+//!
+//! 1. **Non-dominated sorting** — partition the combined parent+offspring
+//!    population into Pareto fronts F₁, F₂, …
+//! 2. **Crowding distance** — for each front, compute per-solution crowding
+//!    distance (sum of normalized neighbor gaps in each objective).
+//! 3. **Selection** — fill the next population front-by-front. When a front
+//!    only partially fits, prefer solutions with higher crowding distance.
+//! 4. **Binary tournament** — select parents using (rank, crowding distance)
+//!    comparisons.
+//! 5. **SBX crossover + polynomial mutation** — generate offspring.
+//!
+//! # When to use
+//!
+//! - Two-objective problems where you want a well-spread Pareto front.
+//! - General-purpose multi-objective optimization with moderate population
+//!   sizes.
+//! - Problems that benefit from diversity preservation via crowding distance.
+//!
+//! For problems with **three or more objectives**, consider
+//! [`Nsga3Sampler`](super::nsga3::Nsga3Sampler) (reference-point niching)
+//! or [`MoeadSampler`](super::moead::MoeadSampler) (decomposition).
+//!
+//! # Configuration
+//!
+//! | Parameter | Builder method | Default |
+//! |-----------|---------------|---------|
+//! | Population size | [`population_size`](Nsga2SamplerBuilder::population_size) | `4 + floor(3 * ln(n_params))`, min 4 |
+//! | Crossover probability | [`crossover_prob`](Nsga2SamplerBuilder::crossover_prob) | 0.9 |
+//! | SBX distribution index | [`crossover_eta`](Nsga2SamplerBuilder::crossover_eta) | 20.0 |
+//! | Mutation distribution index | [`mutation_eta`](Nsga2SamplerBuilder::mutation_eta) | 20.0 |
+//! | Random seed | [`seed`](Nsga2SamplerBuilder::seed) | random |
 //!
 //! # Examples
 //!
@@ -39,8 +77,12 @@ use crate::types::Direction;
 
 /// NSGA-II sampler for multi-objective optimization.
 ///
-/// Provides non-dominated sorting, crowding distance selection,
-/// SBX crossover, and polynomial mutation.
+/// Use non-dominated sorting with crowding-distance tie-breaking to
+/// evolve a well-spread Pareto front. Best suited for bi-objective
+/// problems; for 3+ objectives prefer [`Nsga3Sampler`](super::nsga3::Nsga3Sampler).
+///
+/// Create with [`Nsga2Sampler::new`], [`Nsga2Sampler::with_seed`], or
+/// [`Nsga2Sampler::builder`] for full configuration.
 pub struct Nsga2Sampler {
     state: Mutex<Nsga2State>,
 }

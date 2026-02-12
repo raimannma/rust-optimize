@@ -1,18 +1,35 @@
-//! Parameter value storage types.
+//! Raw parameter value storage.
+//!
+//! [`ParamValue`] is the type-erased representation of a sampled parameter.
+//! Users rarely construct `ParamValue` directly — the
+//! [`Parameter::suggest`](crate::parameter::Parameter::suggest) method returns
+//! the already-typed value (e.g., `f64` for [`FloatParam`](crate::parameter::FloatParam)).
+//!
+//! `ParamValue` is useful when inspecting raw trial data via
+//! [`Trial::params`](crate::Trial::params) or
+//! [`CompletedTrial::params`](crate::sampler::CompletedTrial).
 
-/// Represents a sampled parameter value.
+/// A type-erased sampled parameter value.
 ///
-/// This enum stores different parameter value types uniformly.
-/// For categorical parameters, the `Categorical` variant stores
-/// the index into the choices array.
+/// Stores float, integer, or categorical (index) values uniformly.
+/// For categorical parameters the `Categorical` variant stores the
+/// zero-based index into the choices array, not the choice itself.
+///
+/// # Display
+///
+/// `ParamValue` implements [`Display`](core::fmt::Display): floats and
+/// integers print their numeric value, and categoricals print `category(i)`.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ParamValue {
-    /// A floating-point parameter value.
+    /// A floating-point parameter value (from [`FloatParam`](crate::parameter::FloatParam)).
     Float(f64),
-    /// An integer parameter value.
+    /// An integer parameter value (from [`IntParam`](crate::parameter::IntParam)).
     Int(i64),
-    /// A categorical parameter value, stored as an index into the choices array.
+    /// A categorical index into the choices array (from
+    /// [`CategoricalParam`](crate::parameter::CategoricalParam),
+    /// [`BoolParam`](crate::parameter::BoolParam), or
+    /// [`EnumParam`](crate::parameter::EnumParam)).
     Categorical(usize),
 }
 

@@ -63,7 +63,7 @@ impl<V> Study<V>
 where
     V: PartialOrd,
 {
-    /// Creates a new study with the given optimization direction.
+    /// Create a new study with the given optimization direction.
     ///
     /// Uses the default `RandomSampler` for parameter sampling.
     ///
@@ -87,7 +87,7 @@ where
         Self::with_sampler(direction, RandomSampler::new())
     }
 
-    /// Returns a [`StudyBuilder`] for constructing a study with a fluent API.
+    /// Return a [`StudyBuilder`] for constructing a study with a fluent API.
     ///
     /// # Examples
     ///
@@ -111,7 +111,7 @@ where
         }
     }
 
-    /// Creates a study that minimizes the objective value.
+    /// Create a study that minimizes the objective value.
     ///
     /// This is a shorthand for `Study::with_sampler(Direction::Minimize, sampler)`.
     ///
@@ -136,7 +136,7 @@ where
         Self::with_sampler(Direction::Minimize, sampler)
     }
 
-    /// Creates a study that maximizes the objective value.
+    /// Create a study that maximizes the objective value.
     ///
     /// This is a shorthand for `Study::with_sampler(Direction::Maximize, sampler)`.
     ///
@@ -161,7 +161,7 @@ where
         Self::with_sampler(Direction::Maximize, sampler)
     }
 
-    /// Creates a new study with a custom sampler.
+    /// Create a new study with a custom sampler.
     ///
     /// # Arguments
     ///
@@ -189,7 +189,7 @@ where
         )
     }
 
-    /// Builds a trial factory for sampler integration when `V = f64`.
+    /// Build a trial factory for sampler integration when `V = f64`.
     fn make_trial_factory(
         sampler: &Arc<dyn Sampler>,
         storage: &Arc<dyn crate::storage::Storage<V>>,
@@ -220,10 +220,28 @@ where
         })
     }
 
-    /// Creates a study with a custom sampler and storage backend.
+    /// Create a study with a custom sampler and storage backend.
     ///
     /// This is the most general constructor — all other constructors
-    /// delegate to this one.
+    /// delegate to this one. Use it when you need a non-default storage
+    /// backend (e.g., [`JournalStorage`](crate::storage::JournalStorage)).
+    ///
+    /// # Arguments
+    ///
+    /// * `direction` - Whether to minimize or maximize the objective function.
+    /// * `sampler` - The sampler to use for parameter sampling.
+    /// * `storage` - The storage backend for completed trials.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::sampler::random::RandomSampler;
+    /// use optimizer::storage::MemoryStorage;
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let storage = MemoryStorage::<f64>::new();
+    /// let study = Study::with_sampler_and_storage(Direction::Minimize, RandomSampler::new(), storage);
+    /// ```
     pub fn with_sampler_and_storage(
         direction: Direction,
         sampler: impl Sampler + 'static,
@@ -247,28 +265,15 @@ where
         }
     }
 
-    /// Returns the optimization direction.
+    /// Return the optimization direction.
     #[must_use]
     pub fn direction(&self) -> Direction {
         self.direction
     }
 
-    /// Sets a new sampler for the study.
+    /// Creates a study with a custom sampler and pruner.
     ///
-    /// # Arguments
-    ///
-    /// * `sampler` - The sampler to use for parameter sampling.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use optimizer::sampler::tpe::TpeSampler;
-    /// use optimizer::{Direction, Study};
-    ///
-    /// let mut study: Study<f64> = Study::new(Direction::Minimize);
-    /// study.set_sampler(TpeSampler::new());
-    /// ```
-    /// Creates a new study with a custom sampler and pruner.
+    /// Uses the default [`MemoryStorage`](crate::storage::MemoryStorage) backend.
     ///
     /// # Arguments
     ///
@@ -310,6 +315,21 @@ where
         }
     }
 
+    /// Replace the sampler used for future parameter suggestions.
+    ///
+    /// The new sampler takes effect for all subsequent calls to
+    /// [`create_trial`](Self::create_trial), [`ask`](Self::ask), and the
+    /// `optimize*` family. Already-completed trials are unaffected.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::sampler::tpe::TpeSampler;
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let mut study: Study<f64> = Study::new(Direction::Minimize);
+    /// study.set_sampler(TpeSampler::new());
+    /// ```
     pub fn set_sampler(&mut self, sampler: impl Sampler + 'static)
     where
         V: 'static,
@@ -318,11 +338,18 @@ where
         self.trial_factory = Self::make_trial_factory(&self.sampler, &self.storage, &self.pruner);
     }
 
-    /// Sets a new pruner for the study.
+    /// Replace the pruner used for future trials.
     ///
-    /// # Arguments
+    /// The new pruner takes effect for all trials created after this call.
     ///
-    /// * `pruner` - The pruner to use for trial pruning.
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::prelude::*;
+    ///
+    /// let mut study: Study<f64> = Study::new(Direction::Minimize);
+    /// study.set_pruner(MedianPruner::new(Direction::Minimize));
+    /// ```
     pub fn set_pruner(&mut self, pruner: impl Pruner + 'static)
     where
         V: 'static,
@@ -331,13 +358,13 @@ where
         self.trial_factory = Self::make_trial_factory(&self.sampler, &self.storage, &self.pruner);
     }
 
-    /// Returns a reference to the study's pruner.
+    /// Return a reference to the study's current pruner.
     #[must_use]
     pub fn pruner(&self) -> &dyn Pruner {
         &*self.pruner
     }
 
-    /// Enqueues a specific parameter configuration to be evaluated next.
+    /// Enqueue a specific parameter configuration to be evaluated next.
     ///
     /// The next call to [`ask()`](Self::ask) or the next trial in [`optimize()`](Self::optimize)
     /// will use these exact parameters instead of sampling from the sampler.
@@ -377,7 +404,7 @@ where
         self.enqueued_params.lock().push_back(params);
     }
 
-    /// Returns the trial ID of the current best trial from the given slice.
+    /// Return the trial ID of the current best trial from the given slice.
     #[cfg(feature = "tracing")]
     fn best_id(&self, trials: &[CompletedTrial<V>]) -> Option<u64> {
         let direction = self.direction;
@@ -388,7 +415,7 @@ where
             .map(|t| t.id)
     }
 
-    /// Creates a new trial with pre-set parameter values.
+    /// Create a new trial with pre-set parameter values.
     ///
     /// The trial gets a new unique ID but reuses the given parameters. When
     /// `suggest_param` is called on the resulting trial, fixed values are
@@ -404,18 +431,20 @@ where
         trial
     }
 
-    /// Returns the number of enqueued parameter configurations.
+    /// Return the number of enqueued parameter configurations.
+    ///
+    /// See [`enqueue`](Self::enqueue) for how to add configurations.
     #[must_use]
     pub fn n_enqueued(&self) -> usize {
         self.enqueued_params.lock().len()
     }
 
-    /// Generates the next unique trial ID.
+    /// Generate the next unique trial ID.
     pub(crate) fn next_trial_id(&self) -> u64 {
         self.storage.next_trial_id()
     }
 
-    /// Creates a new trial with a unique ID.
+    /// Create a new trial with a unique ID.
     ///
     /// The trial starts in the `Running` state and can be used to suggest
     /// parameter values. After the objective function is evaluated, call
@@ -456,7 +485,7 @@ where
         trial
     }
 
-    /// Records a completed trial with its objective value.
+    /// Record a completed trial with its objective value.
     ///
     /// This method stores the trial's parameters, distributions, and objective
     /// value in the study's history. The stored data is used by samplers to
@@ -499,7 +528,7 @@ where
         self.storage.push(completed);
     }
 
-    /// Records a failed trial with an error message.
+    /// Record a failed trial with an error message.
     ///
     /// Failed trials are not stored in the study's history and do not
     /// contribute to future sampling decisions. This method is useful
@@ -582,11 +611,15 @@ where
         }
     }
 
-    /// Records a pruned trial, preserving its intermediate values.
+    /// Record a pruned trial, preserving its intermediate values.
     ///
     /// Pruned trials are stored alongside completed trials so that samplers
     /// can optionally learn from partial evaluations. The trial's state is
-    /// set to `Pruned`.
+    /// set to [`Pruned`](crate::TrialState::Pruned).
+    ///
+    /// In practice you rarely call this directly — returning
+    /// `Err(TrialPruned)` from an objective function handles pruning
+    /// automatically.
     ///
     /// # Arguments
     ///
@@ -611,9 +644,9 @@ where
         self.storage.push(completed);
     }
 
-    /// Returns an iterator over all completed trials.
+    /// Return all completed trials as a `Vec`.
     ///
-    /// The iterator yields references to `CompletedTrial` values, which contain
+    /// The returned vector contains clones of `CompletedTrial` values, which contain
     /// the trial's parameters, distributions, and objective value.
     ///
     /// Note: This method acquires a read lock on the completed trials, so the
@@ -643,7 +676,7 @@ where
         self.storage.trials_arc().read().clone()
     }
 
-    /// Returns the number of completed trials.
+    /// Return the number of completed trials.
     ///
     /// Failed trials are not counted.
     ///
@@ -667,7 +700,9 @@ where
         self.storage.trials_arc().read().len()
     }
 
-    /// Returns the number of pruned trials.
+    /// Return the number of pruned trials.
+    ///
+    /// Pruned trials are those that were stopped early by the pruner.
     #[must_use]
     pub fn n_pruned_trials(&self) -> usize {
         self.storage
@@ -678,7 +713,7 @@ where
             .count()
     }
 
-    /// Compares two completed trials using constraint-aware ranking.
+    /// Compare two completed trials using constraint-aware ranking.
     ///
     /// 1. Feasible trials always rank above infeasible trials.
     /// 2. Among feasible trials, rank by objective value (respecting direction).
@@ -708,7 +743,7 @@ where
         }
     }
 
-    /// Returns the trial with the best objective value.
+    /// Return the trial with the best objective value.
     ///
     /// The "best" trial depends on the optimization direction:
     /// - `Direction::Minimize`: Returns the trial with the lowest objective value.
@@ -762,7 +797,7 @@ where
         Ok(best.clone())
     }
 
-    /// Returns the best objective value found so far.
+    /// Return the best objective value found so far.
     ///
     /// The "best" value depends on the optimization direction:
     /// - `Direction::Minimize`: Returns the lowest objective value.
@@ -803,13 +838,33 @@ where
         self.best_trial().map(|trial| trial.value)
     }
 
-    /// Returns the top `n` trials sorted by objective value.
+    /// Return the top `n` trials sorted by objective value.
     ///
     /// For `Direction::Minimize`, returns trials with the lowest values.
     /// For `Direction::Maximize`, returns trials with the highest values.
     /// Only includes completed trials (not failed or pruned).
     ///
     /// If fewer than `n` completed trials exist, returns all of them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let x = FloatParam::new(0.0, 10.0);
+    ///
+    /// for val in [5.0, 1.0, 3.0] {
+    ///     let mut t = study.create_trial();
+    ///     let _ = x.suggest(&mut t);
+    ///     study.complete_trial(t, val);
+    /// }
+    ///
+    /// let top2 = study.top_trials(2);
+    /// assert_eq!(top2.len(), 2);
+    /// assert!(top2[0].value <= top2[1].value);
+    /// ```
     #[must_use]
     pub fn top_trials(&self, n: usize) -> Vec<CompletedTrial<V>>
     where
@@ -828,7 +883,7 @@ where
         completed
     }
 
-    /// Runs optimization with the given objective function.
+    /// Run optimization with the given objective function.
     ///
     /// This method runs `n_trials` evaluations sequentially. For each trial:
     /// 1. A new trial is created
@@ -936,7 +991,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization asynchronously with the given objective function.
+    /// Run optimization asynchronously with the given objective function.
     ///
     /// This method runs `n_trials` evaluations sequentially, but the objective
     /// function can be async (e.g., for I/O-bound operations like network requests
@@ -1036,7 +1091,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization with bounded parallelism for concurrent trial evaluation.
+    /// Run optimization with bounded parallelism for concurrent trial evaluation.
     ///
     /// This method runs up to `concurrency` trials simultaneously, allowing
     /// efficient use of async I/O-bound objective functions. A semaphore limits
@@ -1163,7 +1218,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization with a callback for monitoring progress.
+    /// Run optimization with a callback for monitoring progress.
     ///
     /// This method is similar to `optimize`, but calls a callback function after
     /// each completed trial. The callback can inspect the study state and the
@@ -1305,7 +1360,7 @@ where
 
         Ok(())
     }
-    /// Runs optimization until the given duration has elapsed.
+    /// Run optimization until the given duration has elapsed.
     ///
     /// Trials that are already running when the timeout is reached will
     /// complete — we never interrupt mid-trial. The actual elapsed time
@@ -1392,7 +1447,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization until the given duration has elapsed, with a callback.
+    /// Run optimization until the given duration has elapsed, with a callback.
     ///
     /// Like [`optimize_until`](Self::optimize_until), but calls a callback after
     /// each completed trial. The callback can stop optimization early by returning
@@ -1526,16 +1581,17 @@ where
         Ok(())
     }
 
-    /// Runs optimization asynchronously until the given duration has elapsed.
+    /// Run optimization asynchronously until the given duration has elapsed.
     ///
     /// The async variant of [`optimize_until`](Self::optimize_until). Trials are
-    /// run sequentially, but the objective function can be async.
+    /// run sequentially, but the objective function can be async (useful for
+    /// I/O-bound evaluations).
     ///
     /// # Arguments
     ///
     /// * `duration` - The maximum wall-clock time to spend on optimization.
     /// * `objective` - A function that takes a `Trial` and returns a `Future`
-    ///   that resolves to a tuple of `(Trial, Result<V, E>)`.
+    ///   that resolves to a tuple of `(Trial, V)` or an error.
     ///
     /// # Errors
     ///
@@ -1585,7 +1641,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization with bounded parallelism until the given duration has elapsed.
+    /// Run optimization with bounded parallelism until the given duration has elapsed.
     ///
     /// The parallel variant of [`optimize_until`](Self::optimize_until). Runs up to
     /// `concurrency` trials simultaneously using async tasks. New trials are spawned
@@ -1675,7 +1731,7 @@ where
         Ok(())
     }
 
-    /// Runs optimization with automatic retry for failed trials.
+    /// Run optimization with automatic retry for failed trials.
     ///
     /// If the objective function returns an error, the same parameter
     /// configuration is retried up to `max_retries` times. Only after all
@@ -1789,7 +1845,7 @@ impl<V> Study<V>
 where
     V: PartialOrd + Clone + fmt::Display,
 {
-    /// Export completed trials to CSV format.
+    /// Write completed trials to a writer in CSV format.
     ///
     /// Columns: `trial_id`, `value`, `state`, then one column per unique
     /// parameter label, then one column per unique user-attribute key.
@@ -1800,6 +1856,25 @@ where
     /// # Errors
     ///
     /// Returns an I/O error if writing fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let x = FloatParam::new(0.0, 10.0).name("x");
+    ///
+    /// let mut trial = study.create_trial();
+    /// let _ = x.suggest(&mut trial);
+    /// study.complete_trial(trial, 0.42);
+    ///
+    /// let mut buf = Vec::new();
+    /// study.to_csv(&mut buf).unwrap();
+    /// let csv = String::from_utf8(buf).unwrap();
+    /// assert!(csv.contains("trial_id"));
+    /// ```
     pub fn to_csv(&self, mut writer: impl std::io::Write) -> std::io::Result<()> {
         use std::collections::BTreeMap;
 
@@ -1892,7 +1967,10 @@ where
         Ok(())
     }
 
-    /// Export completed trials to a CSV file.
+    /// Export completed trials to a CSV file at the given path.
+    ///
+    /// Convenience wrapper around [`to_csv`](Self::to_csv) that creates a
+    /// buffered file writer.
     ///
     /// # Errors
     ///
@@ -1902,7 +1980,7 @@ where
         self.to_csv(std::io::BufWriter::new(file))
     }
 
-    /// Returns a human-readable summary of the study.
+    /// Return a human-readable summary of the study.
     ///
     /// The summary includes:
     /// - Optimization direction and total trial count
@@ -1973,10 +2051,24 @@ impl<V> Study<V>
 where
     V: PartialOrd + Clone,
 {
-    /// Returns an iterator over all completed trials.
+    /// Return an iterator over all completed trials.
     ///
     /// This clones the internal trial list, so it is suitable for
     /// analysis and iteration but not for hot paths.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let trial = study.create_trial();
+    /// study.complete_trial(trial, 1.0);
+    ///
+    /// for t in study.iter() {
+    ///     println!("Trial {} → {}", t.id, t.value);
+    /// }
+    /// ```
     #[must_use]
     pub fn iter(&self) -> std::vec::IntoIter<CompletedTrial<V>> {
         self.trials().into_iter()
@@ -1987,7 +2079,7 @@ impl<V> Study<V>
 where
     V: PartialOrd + Clone + Into<f64>,
 {
-    /// Computes parameter importance scores using Spearman rank correlation.
+    /// Compute parameter importance scores using Spearman rank correlation.
     ///
     /// For each parameter, the absolute Spearman correlation between its values
     /// and the objective values is computed across all completed trials. Scores
@@ -2086,7 +2178,7 @@ where
         scores
     }
 
-    /// Computes parameter importance using fANOVA (functional ANOVA) with
+    /// Compute parameter importance using fANOVA (functional ANOVA) with
     /// default configuration.
     ///
     /// Fits a random forest to the trial data and decomposes variance into
@@ -2097,11 +2189,33 @@ where
     /// # Errors
     ///
     /// Returns [`crate::Error::NoCompletedTrials`] if fewer than 2 trials have completed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> = Study::new(Direction::Minimize);
+    /// let x = FloatParam::new(0.0, 10.0).name("x");
+    /// let y = FloatParam::new(0.0, 10.0).name("y");
+    ///
+    /// study
+    ///     .optimize(30, |trial| {
+    ///         let xv = x.suggest(trial)?;
+    ///         let yv = y.suggest(trial)?;
+    ///         Ok::<_, optimizer::Error>(xv * xv + 0.1 * yv)
+    ///     })
+    ///     .unwrap();
+    ///
+    /// let result = study.fanova().unwrap();
+    /// assert!(!result.main_effects.is_empty());
+    /// ```
     pub fn fanova(&self) -> crate::Result<crate::fanova::FanovaResult> {
         self.fanova_with_config(&crate::fanova::FanovaConfig::default())
     }
 
-    /// Computes parameter importance using fANOVA with custom configuration.
+    /// Compute parameter importance using fANOVA with custom configuration.
     ///
     /// See [`Self::fanova`] for details. The [`FanovaConfig`](crate::fanova::FanovaConfig)
     /// allows tuning the number of trees, tree depth, and random seed.
@@ -2316,7 +2430,30 @@ impl Study<f64> {
 }
 
 impl<V: PartialOrd + Send + Sync + 'static> Study<V> {
-    /// Creates a study with a custom sampler, pruner, and storage backend.
+    /// Create a study with a custom sampler, pruner, and storage backend.
+    ///
+    /// The most flexible constructor, allowing full control over all components.
+    ///
+    /// # Arguments
+    ///
+    /// * `direction` - Whether to minimize or maximize the objective function.
+    /// * `sampler` - The sampler to use for parameter sampling.
+    /// * `pruner` - The pruner to use for trial pruning.
+    /// * `storage` - The storage backend for completed trials.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::prelude::*;
+    /// use optimizer::storage::MemoryStorage;
+    ///
+    /// let study = Study::with_sampler_pruner_and_storage(
+    ///     Direction::Minimize,
+    ///     TpeSampler::new(),
+    ///     MedianPruner::new(Direction::Minimize),
+    ///     MemoryStorage::<f64>::new(),
+    /// );
+    /// ```
     pub fn with_sampler_pruner_and_storage(
         direction: Direction,
         sampler: impl Sampler + 'static,
@@ -2373,49 +2510,55 @@ pub struct StudyBuilder<V: PartialOrd = f64> {
 }
 
 impl<V: PartialOrd> StudyBuilder<V> {
-    /// Sets the optimization direction to minimize.
+    /// Set the optimization direction to minimize (the default).
     #[must_use]
     pub fn minimize(mut self) -> Self {
         self.direction = Direction::Minimize;
         self
     }
 
-    /// Sets the optimization direction to maximize.
+    /// Set the optimization direction to maximize.
     #[must_use]
     pub fn maximize(mut self) -> Self {
         self.direction = Direction::Maximize;
         self
     }
 
-    /// Sets the optimization direction.
+    /// Set the optimization direction explicitly.
     #[must_use]
     pub fn direction(mut self, direction: Direction) -> Self {
         self.direction = direction;
         self
     }
 
-    /// Sets the sampler used for parameter suggestions.
+    /// Set the sampler used for parameter suggestions.
+    ///
+    /// Defaults to [`RandomSampler`] if not specified.
     #[must_use]
     pub fn sampler(mut self, sampler: impl Sampler + 'static) -> Self {
         self.sampler = Some(Box::new(sampler));
         self
     }
 
-    /// Sets the pruner used for early stopping of trials.
+    /// Set the pruner used for early stopping of trials.
+    ///
+    /// Defaults to [`NopPruner`] (no pruning) if not specified.
     #[must_use]
     pub fn pruner(mut self, pruner: impl Pruner + 'static) -> Self {
         self.pruner = Some(Box::new(pruner));
         self
     }
 
-    /// Sets a custom storage backend.
+    /// Set a custom storage backend.
+    ///
+    /// Defaults to [`MemoryStorage`](crate::storage::MemoryStorage) if not specified.
     #[must_use]
     pub fn storage(mut self, storage: impl crate::storage::Storage<V> + 'static) -> Self {
         self.storage = Some(Box::new(storage));
         self
     }
 
-    /// Builds the [`Study`] with the configured options.
+    /// Build the [`Study`] with the configured options.
     #[must_use]
     pub fn build(self) -> Study<V>
     where
@@ -2450,15 +2593,31 @@ impl<V> Study<V>
 where
     V: PartialOrd + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
 {
-    /// Creates a study backed by a JSONL journal file.
+    /// Create a study backed by a JSONL journal file.
     ///
     /// Any existing trials in the file are loaded into memory and the
     /// trial ID counter is set to one past the highest stored ID. New
     /// trials are written through to the file on completion.
     ///
+    /// # Arguments
+    ///
+    /// * `direction` - Whether to minimize or maximize the objective function.
+    /// * `sampler` - The sampler to use for parameter sampling.
+    /// * `path` - Path to the JSONL journal file (created if absent).
+    ///
     /// # Errors
     ///
     /// Returns a [`Storage`](crate::Error::Storage) error if loading fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use optimizer::sampler::tpe::TpeSampler;
+    /// use optimizer::{Direction, Study};
+    ///
+    /// let study: Study<f64> =
+    ///     Study::with_journal(Direction::Minimize, TpeSampler::new(), "trials.jsonl").unwrap();
+    /// ```
     pub fn with_journal(
         direction: Direction,
         sampler: impl Sampler + 'static,
@@ -2470,9 +2629,9 @@ where
 }
 
 impl Study<f64> {
-    /// Generates an HTML report with interactive Plotly.js charts.
+    /// Generate an HTML report with interactive Plotly.js charts.
     ///
-    /// Creates a self-contained HTML file that can be opened in any browser.
+    /// Create a self-contained HTML file that can be opened in any browser.
     /// See [`generate_html_report`](crate::visualization::generate_html_report)
     /// for details on the included charts.
     ///
@@ -2519,6 +2678,7 @@ impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
     /// Export trials as a pretty-printed JSON array to a file.
     ///
     /// Each element in the array is a serialized [`CompletedTrial`].
+    /// Requires the `serde` feature.
     ///
     /// # Errors
     ///
@@ -2529,7 +2689,7 @@ impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
         serde_json::to_writer_pretty(file, &trials).map_err(std::io::Error::other)
     }
 
-    /// Saves the study state to a JSON file.
+    /// Save the study state to a JSON file.
     ///
     /// # Errors
     ///
@@ -2561,7 +2721,7 @@ impl<V: PartialOrd + Clone + serde::Serialize> Study<V> {
 
 #[cfg(feature = "serde")]
 impl<V: PartialOrd + Clone + Default + serde::Serialize> Study<V> {
-    /// Runs optimization with automatic checkpointing every `interval` trials.
+    /// Run optimization with automatic checkpointing every `interval` trials.
     ///
     /// This is convenience sugar over [`optimize_with_callback`](Self::optimize_with_callback)
     /// combined with [`save`](Self::save). The checkpoint is written atomically so
@@ -2595,7 +2755,7 @@ impl<V: PartialOrd + Clone + Default + serde::Serialize> Study<V> {
 
 #[cfg(feature = "serde")]
 impl<V: PartialOrd + Send + Sync + Clone + serde::de::DeserializeOwned + 'static> Study<V> {
-    /// Loads a study from a JSON file.
+    /// Load a study from a JSON file.
     ///
     /// The loaded study uses a `RandomSampler` by default. Call
     /// [`set_sampler()`](Self::set_sampler) to restore the original sampler

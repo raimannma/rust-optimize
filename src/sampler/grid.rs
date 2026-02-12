@@ -1,7 +1,39 @@
-//! Grid search sampler implementation.
+//! Grid search sampler — exhaustive evaluation of discretized parameter spaces.
 //!
-//! `GridSearchSampler` performs exhaustive grid search over the parameter space,
-//! systematically evaluating all combinations of discretized parameter values.
+//! [`GridSearchSampler`] divides each parameter range into a fixed number of
+//! evenly spaced points (or uses the explicit step size when defined) and
+//! evaluates them sequentially. This guarantees complete coverage of the
+//! search grid at the cost of scaling exponentially with the number of
+//! parameters.
+//!
+//! # When to use
+//!
+//! - **Small, discrete spaces** — when you have a handful of categorical or
+//!   integer parameters and want to evaluate every combination.
+//! - **Reproducibility** — grid search is fully deterministic with no random
+//!   component.
+//! - **Benchmarking** — compare grid search results against adaptive samplers
+//!   to measure their benefit.
+//!
+//! Avoid grid search for high-dimensional or large continuous spaces;
+//! prefer [`TpeSampler`](super::tpe::TpeSampler) or
+//! [`RandomSampler`](super::random::RandomSampler) instead.
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |---|---|---|
+//! | `n_points_per_param` | 10 | Points per continuous parameter (ignored when `step` is set) |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::prelude::*;
+//! use optimizer::sampler::grid::GridSearchSampler;
+//!
+//! let sampler = GridSearchSampler::builder().n_points_per_param(5).build();
+//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+//! ```
 
 use std::collections::HashMap;
 
@@ -295,38 +327,38 @@ struct GridState {
     grids: HashMap<String, CachedGrid>,
 }
 
-/// A grid search sampler that exhaustively evaluates all grid points.
+/// Exhaustive grid search sampler.
 ///
-/// `GridSearchSampler` divides the parameter space into a grid and systematically
-/// samples each point. This is useful when you want to evaluate all combinations
-/// of parameter values, especially for discrete or small parameter spaces.
+/// Divide each parameter range into evenly spaced points and evaluate them
+/// sequentially. When a parameter has an explicit `step` size, the step grid
+/// is used instead of auto-discretization.
 ///
-/// # Grid Exhaustion
+/// Grid state is tracked **per distribution key** (bounds + step + log-scale).
+/// Parameters with identical distributions share the same grid counter, so
+/// use distinct ranges when multiple parameters span the same domain.
 ///
-/// The sampler tracks its position in the grid for each distribution independently.
-/// When all grid points for a distribution have been sampled, subsequent calls to
-/// `sample()` for that distribution will **panic** with the message:
-/// `"GridSearchSampler: all grid points exhausted"`.
+/// # Grid exhaustion
 ///
-/// To avoid panics, use [`is_exhausted()`](Self::is_exhausted) to check if all
-/// points have been sampled before calling `sample()`. You can also use
-/// [`grid_size()`](Self::grid_size) to determine the total number of grid points
-/// that will be sampled.
+/// When all grid points for a distribution have been sampled, the next
+/// `sample()` call for that distribution **panics**. Use
+/// [`is_exhausted()`](Self::is_exhausted) to check before sampling, or
+/// set `n_points_per_param` high enough to cover the planned number of
+/// trials.
 ///
-/// # Thread Safety
+/// # Thread safety
 ///
-/// `GridSearchSampler` is thread-safe (`Send + Sync`) and uses internal locking
-/// to ensure safe concurrent access to grid state.
+/// `GridSearchSampler` is `Send + Sync` and uses internal locking for
+/// safe concurrent access.
 ///
 /// # Examples
 ///
 /// ```
 /// use optimizer::sampler::grid::GridSearchSampler;
 ///
-/// // Create with default settings (10 points per parameter)
+/// // Default: 10 points per parameter
 /// let sampler = GridSearchSampler::new();
 ///
-/// // Create with custom settings using the builder
+/// // Custom grid density
 /// let sampler = GridSearchSampler::builder().n_points_per_param(20).build();
 /// ```
 pub struct GridSearchSampler {

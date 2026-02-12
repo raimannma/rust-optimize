@@ -1,13 +1,13 @@
 //! BOHB (Bayesian Optimization + `HyperBand`) sampler.
 //!
-//! BOHB combines TPE's model-guided sampling with Hyperband's budget-aware
+//! BOHB combines TPE's model-guided sampling with `HyperBand`'s budget-aware
 //! evaluation. Instead of building one global TPE model, BOHB conditions
 //! its TPE model on trials evaluated at a specific budget level, giving
-//! better-calibrated proposals for each rung of the Hyperband schedule.
+//! better-calibrated proposals for each rung of the `HyperBand` schedule.
 //!
 //! # How it works
 //!
-//! 1. Compute all Hyperband rung steps (budget levels) from the config.
+//! 1. Compute all `HyperBand` rung steps (budget levels) from the config.
 //! 2. On each `sample()` call, scan the history's `intermediate_values`
 //!    to find the **largest budget level** with enough observations
 //!    (`>= min_points_in_model`).
@@ -15,6 +15,26 @@
 //!    with its intermediate value at that budget level.
 //! 4. Delegate to an internal [`TpeSampler`] for the actual sampling.
 //! 5. Fall back to random sampling if no budget level has enough data.
+//!
+//! # When to use
+//!
+//! - You are tuning hyperparameters for models that support early stopping
+//!   (e.g., neural networks with configurable epoch counts).
+//! - You want to combine model-guided search with aggressive pruning of
+//!   unpromising configurations.
+//! - Your objective has a natural "budget" axis (epochs, iterations, data
+//!   fraction) reported via [`Trial::report`](crate::Trial::report).
+//!
+//! Pair `BohbSampler` with [`matching_pruner`](BohbSampler::matching_pruner)
+//! to get a `HyperBandPruner` whose budget schedule is consistent with
+//! the sampler's conditioning levels.
+//!
+//! # Configuration
+//!
+//! - `min_resource` / `max_resource` — budget range (default: 1 … 81)
+//! - `reduction_factor` (η) — successive halving factor (default: 3)
+//! - `min_points_in_model` — observations needed before TPE replaces random (default: 10)
+//! - All [`TpeSamplerBuilder`](super::tpe::TpeSamplerBuilder) options (gamma, seed, etc.)
 //!
 //! # Examples
 //!
@@ -27,7 +47,7 @@
 //! let study: Study<f64> = Study::with_sampler_and_pruner(Direction::Minimize, bohb, pruner);
 //! ```
 //!
-//! Using the builder for custom configuration:
+//! Custom configuration via builder:
 //!
 //! ```
 //! use optimizer::sampler::bohb::BohbSampler;
@@ -50,7 +70,7 @@ use crate::sampler::tpe::TpeSampler;
 use crate::sampler::{CompletedTrial, Sampler};
 use crate::types::Direction;
 
-/// A BOHB sampler that combines TPE with Hyperband budget awareness.
+/// A BOHB sampler that combines TPE with `HyperBand` budget awareness.
 ///
 /// BOHB filters trial history by budget level before delegating to TPE,
 /// so the surrogate model is conditioned on trials evaluated at the same
@@ -58,7 +78,25 @@ use crate::types::Direction;
 /// than using a single global model across all budgets.
 ///
 /// Use [`BohbSampler::matching_pruner`] to create a [`HyperbandPruner`]
-/// with matching parameters.
+/// with matching `HyperBand` parameters.
+///
+/// # Examples
+///
+/// ```
+/// use optimizer::parameter::{FloatParam, Parameter};
+/// use optimizer::sampler::bohb::BohbSampler;
+/// use optimizer::{Direction, Study};
+///
+/// let bohb = BohbSampler::builder()
+///     .min_resource(1)
+///     .max_resource(27)
+///     .reduction_factor(3)
+///     .seed(42)
+///     .build()
+///     .unwrap();
+/// let pruner = bohb.matching_pruner(Direction::Minimize);
+/// let study: Study<f64> = Study::with_sampler_and_pruner(Direction::Minimize, bohb, pruner);
+/// ```
 pub struct BohbSampler {
     min_resource: u64,
     max_resource: u64,
@@ -224,6 +262,14 @@ impl Sampler for BohbSampler {
 }
 
 /// Builder for configuring a [`BohbSampler`].
+///
+/// # Defaults
+///
+/// - `min_resource`: 1
+/// - `max_resource`: 81
+/// - `reduction_factor`: 3 (η)
+/// - `min_points_in_model`: 10
+/// - TPE: default settings (gamma = 0.25, etc.)
 ///
 /// # Examples
 ///

@@ -1,6 +1,21 @@
+//! Error types for the optimizer crate.
+//!
+//! All fallible operations in the crate return [`Result<T>`], which is an
+//! alias for `core::result::Result<T, Error>`. The [`Error`] enum covers
+//! parameter validation, sampling conflicts, pruning signals, and
+//! feature-gated I/O errors.
+
+/// Errors returned by optimizer operations.
+///
+/// Most variants are returned during parameter validation or trial
+/// management. The [`TrialPruned`](Error::TrialPruned) variant has special
+/// significance — it signals early stopping and is typically raised via
+/// the [`TrialPruned`](super::TrialPruned) convenience type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Returned when the lower bound is greater than the upper bound.
+    /// The lower bound exceeds the upper bound in a
+    /// [`FloatParam`](crate::parameter::FloatParam) or
+    /// [`IntParam`](crate::parameter::IntParam).
     #[error("invalid bounds: low ({low}) must be less than or equal to high ({high})")]
     InvalidBounds {
         /// The lower bound value.
@@ -9,19 +24,22 @@ pub enum Error {
         high: f64,
     },
 
-    /// Returned when log scale is used with non-positive bounds.
+    /// Log-scale is enabled but the lower bound is not positive (float) or
+    /// is less than 1 (integer).
     #[error("invalid log bounds: low must be positive for log scale")]
     InvalidLogBounds,
 
-    /// Returned when step size is not positive.
+    /// The step size provided to a parameter is not positive.
     #[error("invalid step: step must be positive")]
     InvalidStep,
 
-    /// Returned when categorical choices are empty.
+    /// A [`CategoricalParam`](crate::parameter::CategoricalParam) was created
+    /// with an empty choices vector.
     #[error("categorical choices cannot be empty")]
     EmptyChoices,
 
-    /// Returned when a parameter is suggested with a different configuration.
+    /// The same [`ParamId`](crate::parameter::ParamId) was suggested twice
+    /// with a different distribution configuration.
     #[error("parameter conflict for '{name}': {reason}")]
     ParameterConflict {
         /// The name of the conflicting parameter.
@@ -30,27 +48,29 @@ pub enum Error {
         reason: String,
     },
 
-    /// Returned when requesting the best trial but no trials have completed.
+    /// [`Study::best_trial`](crate::Study::best_trial) or similar was called
+    /// before any trial completed successfully.
     #[error("no completed trials available")]
     NoCompletedTrials,
 
-    /// Returned when gamma is not in the valid range (0.0, 1.0).
+    /// The gamma value for TPE sampling is outside the open interval (0, 1).
     #[error("invalid gamma: {0} must be in (0.0, 1.0)")]
     InvalidGamma(f64),
 
-    /// Returned when bandwidth is not positive.
+    /// A KDE bandwidth value is not positive.
     #[error("invalid bandwidth: {0} must be positive")]
     InvalidBandwidth(f64),
 
-    /// Returned when KDE is created with empty samples.
+    /// A kernel density estimator was constructed with no samples.
     #[error("KDE requires at least one sample")]
     EmptySamples,
 
-    /// Returned when multivariate KDE samples have zero dimensions.
+    /// Multivariate KDE samples have zero dimensions.
     #[error("multivariate KDE samples must have at least one dimension")]
     ZeroDimensions,
 
-    /// Returned when multivariate KDE samples have inconsistent dimensions.
+    /// A sample in the multivariate KDE has a different number of dimensions
+    /// than the first sample.
     #[error(
         "dimension mismatch: expected {expected} dimensions but sample {sample_index} has {got}"
     )]
@@ -63,7 +83,7 @@ pub enum Error {
         sample_index: usize,
     },
 
-    /// Returned when bandwidth vector length doesn't match the number of dimensions.
+    /// The bandwidth vector length does not match the number of KDE dimensions.
     #[error("bandwidth dimension mismatch: expected {expected} bandwidths but got {got}")]
     BandwidthDimensionMismatch {
         /// The expected number of bandwidths.
@@ -72,11 +92,14 @@ pub enum Error {
         got: usize,
     },
 
-    /// Returned when a trial is pruned (stopped early by the objective function).
+    /// The objective signalled that this trial should be pruned (stopped
+    /// early). Typically raised via `Err(TrialPruned)?` inside the
+    /// objective closure.
     #[error("trial was pruned")]
     TrialPruned,
 
-    /// Returned when the objective returns the wrong number of values.
+    /// The multi-objective closure returned a different number of values
+    /// than the number of directions configured on the study.
     #[error("objective dimension mismatch: expected {expected} values, got {got}")]
     ObjectiveDimensionMismatch {
         /// The expected number of objective values.
@@ -85,21 +108,24 @@ pub enum Error {
         got: usize,
     },
 
-    /// Returned when an internal invariant is violated.
+    /// An internal invariant was violated. This indicates a bug in the
+    /// library rather than a user error.
     #[error("internal error: {0}")]
     Internal(&'static str),
 
-    /// Returned when an async task fails.
+    /// An async worker task failed. Only available with the `async` feature.
     #[cfg(feature = "async")]
     #[error("async task error: {0}")]
     TaskError(String),
 
-    /// Returned when a storage operation fails.
+    /// A storage I/O operation failed. Only available with the `journal`
+    /// feature.
     #[cfg(feature = "journal")]
     #[error("storage error: {0}")]
     Storage(String),
 }
 
+/// A convenience alias for `core::result::Result<T, Error>`.
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Convenience type for signalling a pruned trial from an objective function.

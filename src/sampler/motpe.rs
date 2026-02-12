@@ -1,19 +1,38 @@
 //! Multi-Objective Tree-Parzen Estimator (MOTPE) sampler.
 //!
-//! Extends TPE to handle multi-objective optimization by using Pareto
-//! non-dominated sorting to define "good" vs "bad" trial regions for
-//! the KDE models, replacing the single-objective gamma-based split.
+//! MOTPE extends TPE to multi-objective optimization by replacing the gamma-based
+//! split with Pareto non-dominated sorting. This lets the sampler propose
+//! parameters that push the Pareto front forward across all objectives
+//! simultaneously.
 //!
 //! # Algorithm
 //!
-//! In single-objective TPE, trials are sorted by value and split at a
-//! gamma percentile into good/bad groups. MOTPE replaces this with:
+//! In single-objective TPE, trials are sorted by value and split at a gamma
+//! percentile into good/bad groups. MOTPE replaces this with:
 //!
-//! 1. Compute non-dominated sorting on all completed trials
-//! 2. Use the Pareto front (rank 0) as "good" trials
-//! 3. Use dominated trials as "bad" trials
-//! 4. Build KDE l(x) from good, g(x) from bad
-//! 5. Sample candidates and score by l(x)/g(x)
+//! 1. Compute non-dominated sorting on all completed trials.
+//! 2. Use the Pareto front (rank 0) as "good" trials.
+//! 3. Use dominated trials (rank 1+) as "bad" trials.
+//! 4. Build KDE l(x) from good, g(x) from bad.
+//! 5. Sample candidates and score by l(x)/g(x).
+//!
+//! # When to use
+//!
+//! - You have 2+ objectives and want model-guided search (not pure evolutionary).
+//! - Your objectives are relatively smooth and continuous.
+//! - You want a Pareto-aware version of TPE without the overhead of full
+//!   population-based algorithms like NSGA-II or NSGA-III.
+//!
+//! For single-objective problems, use [`TpeSampler`](super::tpe::TpeSampler) instead.
+//! For many-objective (3+) problems with reference-point decomposition, consider
+//! NSGA-III or MOEA/D.
+//!
+//! # Configuration
+//!
+//! - `n_startup_trials` — number of random trials before MOTPE kicks in (default: 11)
+//! - `n_ei_candidates` — candidates evaluated per sample (default: 24)
+//! - `kde_bandwidth` — optional fixed KDE bandwidth; `None` uses Scott's rule
+//! - `seed` — optional seed for reproducibility
 //!
 //! # Examples
 //!
@@ -50,13 +69,20 @@ use crate::{pareto, rng_util};
 
 /// Multi-Objective TPE (MOTPE) sampler for multi-objective Bayesian optimization.
 ///
-/// Uses Pareto non-dominated sorting to split completed trials into
-/// "good" (non-dominated, rank 0) and "bad" (dominated) groups, then
-/// fits kernel density estimators to each group and samples new points
-/// that maximize l(x)/g(x).
+/// Use Pareto non-dominated sorting to split completed trials into "good"
+/// (non-dominated, rank 0) and "bad" (dominated) groups, then fit kernel
+/// density estimators to each group and sample new points that maximize
+/// l(x)/g(x).
 ///
 /// During the startup phase (fewer than `n_startup_trials` completed),
 /// MOTPE falls back to random sampling.
+///
+/// # When to use
+///
+/// Use `MotpeSampler` when optimizing 2+ objectives and you want a
+/// model-guided sampler that adapts proposals based on the current
+/// Pareto front. For single-objective problems, use
+/// [`TpeSampler`](super::tpe::TpeSampler) instead.
 ///
 /// # Examples
 ///
@@ -74,6 +100,17 @@ use crate::{pareto, rng_util};
 ///
 /// let study =
 ///     MultiObjectiveStudy::with_sampler(vec![Direction::Minimize, Direction::Minimize], sampler);
+///
+/// let x = FloatParam::new(0.0, 1.0);
+/// study
+///     .optimize(30, |trial| {
+///         let xv = x.suggest(trial)?;
+///         Ok::<_, optimizer::Error>(vec![xv, 1.0 - xv])
+///     })
+///     .unwrap();
+///
+/// let front = study.pareto_front();
+/// assert!(!front.is_empty());
 /// ```
 pub struct MotpeSampler {
     /// Number of trials before MOTPE kicks in (uses random sampling before this).
@@ -519,6 +556,13 @@ impl MultiObjectiveSampler for MotpeSampler {
 }
 
 /// Builder for configuring a [`MotpeSampler`].
+///
+/// # Defaults
+///
+/// - `n_startup_trials`: 11
+/// - `n_ei_candidates`: 24
+/// - `kde_bandwidth`: None (Scott's rule)
+/// - `seed`: None (OS entropy)
 ///
 /// # Examples
 ///

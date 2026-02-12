@@ -1,15 +1,71 @@
 //! Pareto front analysis utilities for multi-objective optimization.
 //!
-//! Provides functions for analyzing and working with Pareto fronts:
+//! In multi-objective optimization there is generally no single best
+//! solution. Instead, the goal is to find the **Pareto front** — the set
+//! of solutions where no objective can be improved without worsening
+//! another. This module provides tools for computing and analyzing Pareto
+//! fronts.
 //!
-//! - [`hypervolume`] — measure the quality of a Pareto front
-//! - [`non_dominated_sort`] — rank solutions into successive fronts
-//! - [`pareto_front_indices`] — filter to non-dominated solutions only
-//! - [`crowding_distance`] — measure diversity within a front
+//! # Available functions
 //!
-//! Internally also provides fast non-dominated sorting (Deb et al., 2002)
-//! used by [`MultiObjectiveStudy::pareto_front()`](crate::MultiObjectiveStudy::pareto_front)
+//! | Function | Purpose |
+//! |---|---|
+//! | [`hypervolume`] | Measure the quality of a Pareto front (volume of dominated space) |
+//! | [`non_dominated_sort`] | Rank solutions into successive fronts (front 0, 1, …) |
+//! | [`pareto_front_indices`] | Filter to non-dominated (Pareto-optimal) solutions only |
+//! | [`crowding_distance`] | Measure diversity/spread within a single front |
+//!
+//! # When to use
+//!
+//! - **Evaluating front quality**: Use [`hypervolume`] to compare two
+//!   Pareto fronts — a higher hypervolume indicates a better-quality front.
+//! - **Ranking all solutions**: Use [`non_dominated_sort`] to partition
+//!   solutions into successive fronts, useful for selection in evolutionary
+//!   algorithms.
+//! - **Extracting the best solutions**: Use [`pareto_front_indices`] to get
+//!   only the non-dominated set.
+//! - **Diversity measurement**: Use [`crowding_distance`] to quantify how
+//!   spread out solutions are within a front, which helps maintain diversity.
+//!
+//! Internally, this module also provides the fast non-dominated sorting
+//! algorithm (Deb et al., 2002) used by
+//! [`MultiObjectiveStudy::pareto_front()`](crate::MultiObjectiveStudy::pareto_front)
 //! and [`Nsga2Sampler`](crate::Nsga2Sampler).
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pareto::{
+//!     crowding_distance, hypervolume, non_dominated_sort, pareto_front_indices,
+//! };
+//!
+//! let solutions = vec![
+//!     vec![1.0, 5.0], // Pareto-optimal
+//!     vec![5.0, 1.0], // Pareto-optimal
+//!     vec![3.0, 3.0], // Pareto-optimal
+//!     vec![4.0, 4.0], // Dominated by (3, 3)
+//! ];
+//! let dirs = [Direction::Minimize, Direction::Minimize];
+//!
+//! // Non-dominated sorting: front 0 has indices {0, 1, 2}
+//! let fronts = non_dominated_sort(&solutions, &dirs);
+//! assert_eq!(fronts.len(), 2);
+//!
+//! // Pareto front indices (shortcut for fronts[0])
+//! let mut front = pareto_front_indices(&solutions, &dirs);
+//! front.sort();
+//! assert_eq!(front, vec![0, 1, 2]);
+//!
+//! // Hypervolume with reference point (6, 6)
+//! let front_values: Vec<_> = front.iter().map(|&i| solutions[i].clone()).collect();
+//! let hv = hypervolume(&front_values, &[6.0, 6.0], &dirs);
+//! assert!(hv > 0.0);
+//!
+//! // Crowding distance for diversity analysis
+//! let cd = crowding_distance(&front_values, &dirs);
+//! assert!(cd[0].is_infinite()); // boundary solution
+//! ```
 
 use crate::types::Direction;
 
@@ -200,12 +256,17 @@ pub(crate) fn crowding_distance_indexed(front_indices: &[usize], values: &[Vec<f
 /// Compute the hypervolume indicator of a Pareto front.
 ///
 /// The hypervolume is the volume of the objective space dominated by
-/// the Pareto front and bounded by a reference point. Higher values
-/// indicate a better front.
+/// the Pareto front and bounded by a reference point. A **higher**
+/// hypervolume indicates a better front (closer to the ideal and more
+/// spread out).
 ///
 /// Each entry in `front` is one solution's objective values.
 /// `reference_point` should be worse than all front members in every
-/// objective (e.g., the worst acceptable values).
+/// objective (e.g., the worst acceptable values). Solutions that do
+/// not strictly dominate the reference point are ignored.
+///
+/// Uses recursive slicing for dimensions > 1. Complexity grows with
+/// the number of objectives and front size.
 ///
 /// # Panics
 ///
@@ -345,12 +406,14 @@ fn non_dominated_minimize(points: &[Vec<f64>]) -> Vec<Vec<f64>> {
 
 /// Compute non-dominated sorting of a set of solutions.
 ///
-/// Returns a vec of fronts, where `fronts[0]` is the Pareto front,
-/// `fronts[1]` is the next best, etc. Each inner vec contains indices
-/// into the original `solutions` slice.
+/// Return a vec of fronts, where `fronts[0]` is the Pareto front
+/// (non-dominated solutions), `fronts[1]` is the next-best front
+/// (dominated only by front 0), and so on. Each inner vec contains
+/// indices into the original `solutions` slice.
 ///
-/// Uses the fast non-dominated sorting algorithm from
-/// Deb et al. (2002) with O(M N²) complexity.
+/// Use the fast non-dominated sorting algorithm from
+/// Deb et al. (2002) with O(M × N²) complexity, where M is the
+/// number of objectives and N is the number of solutions.
 #[must_use]
 pub fn non_dominated_sort(solutions: &[Vec<f64>], directions: &[Direction]) -> Vec<Vec<usize>> {
     fast_non_dominated_sort(solutions, directions)
@@ -359,7 +422,8 @@ pub fn non_dominated_sort(solutions: &[Vec<f64>], directions: &[Direction]) -> V
 /// Filter solutions to return only non-dominated (Pareto-optimal) indices.
 ///
 /// Equivalent to `non_dominated_sort(solutions, directions)[0]` but
-/// communicates the intent more clearly.
+/// communicates the intent more clearly. Use this when you only need
+/// the Pareto front and not the full ranking.
 #[must_use]
 pub fn pareto_front_indices(solutions: &[Vec<f64>], directions: &[Direction]) -> Vec<usize> {
     let fronts = fast_non_dominated_sort(solutions, directions);
@@ -368,10 +432,13 @@ pub fn pareto_front_indices(solutions: &[Vec<f64>], directions: &[Direction]) ->
 
 /// Compute crowding distance for diversity measurement.
 ///
-/// Returns one distance value per solution in `front` (same order).
+/// Return one distance value per solution in `front` (same order).
 /// Boundary solutions (best/worst in any objective) receive
 /// [`f64::INFINITY`]. Interior solutions get a finite positive value
-/// proportional to the gap between their neighbors.
+/// proportional to the gap between their neighbors in each objective.
+///
+/// Crowding distance is used by NSGA-II to prefer well-spread
+/// solutions when two solutions are in the same front.
 ///
 /// `directions` is accepted for API consistency but does not affect
 /// the result, since crowding distance measures spacing regardless of

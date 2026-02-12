@@ -8,11 +8,11 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT"
 authors = ["Manuel Raimann <raimannma@outlook.de"]
-description = "A Rust library for optimization algorithms."
+description = "Bayesian and population-based optimization library with an Optuna-like API for hyperparameter tuning and black-box optimization"
 repository = "https://github.com/raimannma/rust-optimizer"
 documentation = "https://docs.rs/optimizer"
 keywords = ["optimization", "hyperparameter", "tpe", "grid-search", "bayesian"]
-categories = ["algorithm", "science", "data-structures"]
+categories = ["algorithms", "science", "mathematics"]
 readme = "README.md"
 
 [dependencies]
@@ -54,22 +54,26 @@ name = "optimization"
 harness = false
 
 [[example]]
-name = "async_api_optimization"
-path = "examples/async_api_optimization.rs"
-required-features = ["async"]
+name = "basic_optimization"
+path = "examples/basic_optimization.rs"
 
 [[example]]
-name = "ml_hyperparameter_tuning"
-path = "examples/ml_hyperparameter_tuning.rs"
-
-[[example]]
-name = "parameter_api"
-path = "examples/parameter_api.rs"
+name = "parameter_types"
+path = "examples/parameter_types.rs"
 required-features = ["derive"]
 
 [[example]]
-name = "visualization_demo"
-path = "examples/visualization_demo.rs"
+name = "sampler_comparison"
+path = "examples/sampler_comparison.rs"
+
+[[example]]
+name = "pruning_and_callbacks"
+path = "examples/pruning_and_callbacks.rs"
+
+[[example]]
+name = "advanced_features"
+path = "examples/advanced_features.rs"
+required-features = ["async", "journal"]
 
 [[test]]
 name = "journal_tests"

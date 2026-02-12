@@ -1,4 +1,23 @@
-//! Trial implementation for tracking sampled parameters and trial state.
+//! Trial lifecycle management for optimization runs.
+//!
+//! A [`Trial`] represents a single evaluation of the objective function. The study
+//! creates trials, the objective function samples parameters from them via
+//! [`Parameter::suggest`](crate::parameter::Parameter::suggest), and reports
+//! intermediate values for pruning decisions.
+//!
+//! # Lifecycle
+//!
+//! 1. **Created** — `Study` creates a trial with [`Trial::new`] or internally via
+//!    `Trial::with_sampler`.
+//! 2. **Running** — The objective calls [`Trial::suggest_param`] to sample parameters
+//!    and optionally [`Trial::report`] / [`Trial::should_prune`] for early stopping.
+//! 3. **Completed / Failed / Pruned** — The study marks the trial's final state.
+//!
+//! # User Attributes
+//!
+//! Trials support arbitrary key-value metadata via [`Trial::set_user_attr`] and
+//! [`Trial::user_attr`], useful for logging hyperparameters, hardware info, or
+//! debug notes alongside the optimization results.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -57,14 +76,26 @@ impl From<bool> for AttrValue {
     }
 }
 
-/// A trial represents a single evaluation of the objective function.
+/// A single evaluation of the objective function.
 ///
 /// Each trial has a unique ID and stores the sampled parameters along with
-/// their distributions. The trial progresses through states: Running -> Complete/Failed.
+/// their distributions. The trial progresses through states:
+/// `Running` → `Complete` / `Failed` / `Pruned`.
 ///
-/// Trials use a sampler to generate parameter values. When created through
-/// `Study::create_trial()`, the trial receives the study's sampler and access
-/// to the history of completed trials for informed sampling.
+/// Trials use a [`Sampler`](crate::sampler::Sampler) to generate parameter
+/// values. When created through [`Study::create_trial`](crate::Study::create_trial),
+/// the trial receives the study's sampler and access to the history of
+/// completed trials for informed sampling.
+///
+/// # Examples
+///
+/// ```
+/// use optimizer::Trial;
+/// use optimizer::parameter::{FloatParam, Parameter};
+///
+/// let mut trial = Trial::new(0);
+/// let x = FloatParam::new(-5.0, 5.0).suggest(&mut trial).unwrap();
+/// ```
 #[derive(Clone)]
 pub struct Trial {
     /// Unique identifier for this trial.
@@ -113,13 +144,14 @@ impl core::fmt::Debug for Trial {
 }
 
 impl Trial {
-    /// Creates a new trial with the given ID.
+    /// Create a new trial with the given ID.
     ///
     /// The trial starts in the `Running` state with no parameters sampled.
-    /// This constructor creates a trial without a sampler, which will use
-    /// local random sampling for suggest methods.
+    /// This constructor creates a trial without a sampler, which will fall
+    /// back to random sampling for [`suggest_param`](Self::suggest_param) calls.
     ///
-    /// For trials that use the study's sampler, use `Trial::with_sampler` instead.
+    /// For trials that use the study's sampler, the study creates them
+    /// internally via `Trial::with_sampler`.
     ///
     /// # Arguments
     ///
@@ -151,10 +183,10 @@ impl Trial {
         }
     }
 
-    /// Creates a new trial with a sampler and access to trial history.
+    /// Create a new trial with a sampler and access to trial history.
     ///
-    /// This constructor is used by `Study::create_trial()` to create trials
-    /// that use the study's sampler for informed parameter suggestions.
+    /// Used internally by `Study::create_trial()` to create trials that use
+    /// the study's sampler for informed parameter suggestions.
     ///
     /// # Arguments
     ///
@@ -183,19 +215,19 @@ impl Trial {
         }
     }
 
-    /// Sets pre-filled parameters on this trial.
+    /// Set pre-filled parameters on this trial.
     ///
-    /// When `suggest_param` is called for a parameter that has a fixed value,
-    /// the fixed value is used instead of sampling.
+    /// When [`suggest_param`](Self::suggest_param) is called for a parameter
+    /// that has a fixed value, the fixed value is used instead of sampling.
     pub(crate) fn set_fixed_params(&mut self, params: HashMap<ParamId, ParamValue>) {
         self.fixed_params = params;
     }
 
-    /// Samples a value from the given distribution using the sampler.
+    /// Sample a value from the given distribution using the sampler.
     ///
-    /// If the trial has a sampler, it delegates to the sampler's sample method
-    /// with the history of completed trials. Otherwise, it uses the `RandomSampler`
-    /// as a fallback.
+    /// If the trial has a sampler, delegates to the sampler's sample method
+    /// with the history of completed trials. Otherwise, falls back to
+    /// [`RandomSampler`](crate::sampler::random::RandomSampler).
     fn sample_value(&self, distribution: &Distribution) -> ParamValue {
         if let (Some(sampler), Some(history)) = (&self.sampler, &self.history) {
             let history_guard = history.read();
@@ -208,40 +240,55 @@ impl Trial {
         }
     }
 
-    /// Returns the unique ID of this trial.
+    /// Return the unique ID of this trial.
     #[must_use]
     pub fn id(&self) -> u64 {
         self.id
     }
 
-    /// Returns the current state of this trial.
+    /// Return the current state of this trial.
     #[must_use]
     pub fn state(&self) -> TrialState {
         self.state
     }
 
-    /// Returns a reference to the sampled parameters.
+    /// Return a reference to the sampled parameters, keyed by [`ParamId`](crate::parameter::ParamId).
     #[must_use]
     pub fn params(&self) -> &HashMap<ParamId, ParamValue> {
         &self.params
     }
 
-    /// Returns a reference to the parameter distributions.
+    /// Return a reference to the parameter distributions, keyed by [`ParamId`](crate::parameter::ParamId).
     #[must_use]
     pub fn distributions(&self) -> &HashMap<ParamId, Distribution> {
         &self.distributions
     }
 
-    /// Returns a reference to the parameter labels.
+    /// Return a reference to the parameter labels, keyed by [`ParamId`](crate::parameter::ParamId).
     #[must_use]
     pub fn param_labels(&self) -> &HashMap<ParamId, String> {
         &self.param_labels
     }
 
-    /// Reports an intermediate objective value at a given step.
+    /// Report an intermediate objective value at a given step.
     ///
-    /// Steps should be monotonically increasing (e.g., epoch number).
-    /// Duplicate steps overwrite the previous value.
+    /// Call this during iterative training (e.g., once per epoch) so the
+    /// [`Pruner`](crate::pruner::Pruner) can decide whether to stop the trial
+    /// early. Steps should be monotonically increasing; duplicate steps
+    /// overwrite the previous value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::Trial;
+    ///
+    /// let mut trial = Trial::new(0);
+    /// for epoch in 0..10 {
+    ///     let loss = 1.0 / (epoch as f64 + 1.0);
+    ///     trial.report(epoch, loss);
+    /// }
+    /// assert_eq!(trial.intermediate_values().len(), 10);
+    /// ```
     pub fn report(&mut self, step: u64, value: f64) {
         if let Some(entry) = self
             .intermediate_values
@@ -256,8 +303,11 @@ impl Trial {
 
     /// Ask whether this trial should be pruned at the current step.
     ///
-    /// Returns `true` if the pruner recommends stopping this trial.
-    /// The caller should return `Err(TrialPruned)` from the objective.
+    /// Return `true` if the pruner recommends stopping this trial based on
+    /// the intermediate values reported so far. When `true`, the objective
+    /// should return early with `Err(TrialPruned)?`.
+    ///
+    /// Always returns `false` when no pruner is configured.
     #[must_use]
     pub fn should_prune(&self) -> bool {
         let (Some(pruner), Some(history)) = (&self.pruner, &self.history) else {
@@ -274,59 +324,87 @@ impl Trial {
         prune
     }
 
-    /// Returns all intermediate values reported so far.
+    /// Return all intermediate values reported so far as `(step, value)` pairs.
     #[must_use]
     pub fn intermediate_values(&self) -> &[(u64, f64)] {
         &self.intermediate_values
     }
 
-    /// Sets a user attribute on this trial.
+    /// Set a user attribute on this trial.
+    ///
+    /// User attributes are arbitrary key-value pairs for logging, debugging,
+    /// or analysis. Values can be `f64`, `i64`, `String`, `&str`, or `bool`
+    /// (anything implementing `Into<AttrValue>`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::Trial;
+    ///
+    /// let mut trial = Trial::new(0);
+    /// trial.set_user_attr("gpu", "A100");
+    /// trial.set_user_attr("batch_size", 64_i64);
+    /// trial.set_user_attr("accuracy", 0.95);
+    /// ```
     pub fn set_user_attr(&mut self, key: impl Into<String>, value: impl Into<AttrValue>) {
         self.user_attrs.insert(key.into(), value.into());
     }
 
-    /// Gets a user attribute by key.
+    /// Return a user attribute by key, or `None` if it does not exist.
     #[must_use]
     pub fn user_attr(&self, key: &str) -> Option<&AttrValue> {
         self.user_attrs.get(key)
     }
 
-    /// Returns all user attributes.
+    /// Return all user attributes as a map.
     #[must_use]
     pub fn user_attrs(&self) -> &HashMap<String, AttrValue> {
         &self.user_attrs
     }
 
-    /// Sets constraint values for this trial.
+    /// Set constraint values for this trial.
     ///
-    /// Each value represents a constraint; a value <= 0.0 means the constraint
-    /// is satisfied (feasible). A value > 0.0 means the constraint is violated.
+    /// Each element represents one constraint. A value ≤ 0.0 means the
+    /// constraint is satisfied (feasible); a value > 0.0 means violated.
+    /// Constrained samplers (e.g., NSGA-II with constraints) use these values
+    /// to prefer feasible solutions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::Trial;
+    ///
+    /// let mut trial = Trial::new(0);
+    /// // Two constraints: first satisfied, second violated
+    /// trial.set_constraints(vec![-0.5, 0.3]);
+    /// assert_eq!(trial.constraint_values(), &[-0.5, 0.3]);
+    /// ```
     pub fn set_constraints(&mut self, values: Vec<f64>) {
         self.constraint_values = values;
     }
 
-    /// Returns the constraint values for this trial.
+    /// Return the constraint values for this trial.
     #[must_use]
     pub fn constraint_values(&self) -> &[f64] {
         &self.constraint_values
     }
 
-    /// Sets the trial state to Complete.
+    /// Set the trial state to `Complete`.
     pub(crate) fn set_complete(&mut self) {
         self.state = TrialState::Complete;
     }
 
-    /// Sets the trial state to Failed.
+    /// Set the trial state to `Failed`.
     pub(crate) fn set_failed(&mut self) {
         self.state = TrialState::Failed;
     }
 
-    /// Sets the trial state to Pruned.
+    /// Set the trial state to `Pruned`.
     pub(crate) fn set_pruned(&mut self) {
         self.state = TrialState::Pruned;
     }
 
-    /// Suggests a parameter value using a [`Parameter`] definition.
+    /// Suggest a parameter value using a [`Parameter`] definition.
     ///
     /// This is the primary entry point for sampling parameters. It handles
     /// validation, caching, conflict detection, sampling, and conversion.

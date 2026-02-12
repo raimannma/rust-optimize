@@ -1,15 +1,55 @@
 //! CMA-ES (Covariance Matrix Adaptation Evolution Strategy) sampler.
 //!
-//! CMA-ES maintains a multivariate Gaussian distribution over continuous
-//! parameters and adapts its mean, covariance matrix, and step-size based
-//! on trial rankings. It is one of the most effective derivative-free
-//! optimizers for continuous search spaces.
+//! CMA-ES is a stochastic, population-based optimizer that maintains a
+//! multivariate Gaussian distribution over continuous parameters and adapts
+//! its **mean**, **covariance matrix**, and **step-size** (σ) based on
+//! trial rankings. It is widely regarded as one of the most effective
+//! derivative-free optimizers for continuous search spaces.
 //!
-//! Categorical parameters are sampled uniformly at random (not part of
-//! the CMA-ES vector). If all parameters are categorical, the sampler
-//! falls back to pure random sampling.
+//! # Algorithm overview
 //!
-//! Requires the `cma-es` feature flag.
+//! Each generation:
+//! 1. **Sample** λ (population size) candidates from N(m, σ²C).
+//! 2. **Evaluate** and **rank** the candidates by objective value.
+//! 3. **Update** the mean toward the best μ candidates (weighted recombination).
+//! 4. **Adapt** the covariance matrix C via rank-one and rank-μ updates, and
+//!    adapt σ via cumulative step-size adaptation (CSA).
+//!
+//! Over time the search distribution narrows and rotates to align with the
+//! landscape, efficiently exploiting structure in the objective function.
+//!
+//! # When to use
+//!
+//! - **Continuous parameters only** (float/int). Categorical parameters are
+//!   sampled uniformly at random and do not participate in the CMA-ES model.
+//! - **Moderate dimensionality** — works well up to ~100 continuous dimensions.
+//!   Beyond that, the O(n²) covariance matrix becomes expensive to maintain.
+//! - **Non-separable objectives** — CMA-ES learns parameter correlations
+//!   through the covariance matrix, making it especially effective on
+//!   rotated or ill-conditioned landscapes.
+//! - **Moderate evaluation budgets** — typically needs ≈10×n to 100×n
+//!   evaluations to converge, where n is the number of continuous dimensions.
+//!
+//! For very cheap evaluations in low dimensions (d ≤ 20), consider
+//! [`GpSampler`](super::gp::GpSampler) instead. For high-dimensional
+//! separable problems, TPE may be more efficient.
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `sigma0` | `avg_range / 4` | Initial step size — controls exploration breadth |
+//! | `population_size` | `4 + ⌊3 ln n⌋` | Candidates per generation (λ) |
+//! | `seed` | random | RNG seed for reproducibility |
+//!
+//! # Feature flag
+//!
+//! Requires the **`cma-es`** feature (adds the `nalgebra` dependency):
+//!
+//! ```toml
+//! [dependencies]
+//! optimizer = { version = "...", features = ["cma-es"] }
+//! ```
 //!
 //! # Examples
 //!
@@ -17,8 +57,14 @@
 //! use optimizer::sampler::cma_es::CmaEsSampler;
 //! use optimizer::{Direction, Study};
 //!
-//! let sampler = CmaEsSampler::with_seed(42);
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+//! // Minimize a 2-D sphere function with CMA-ES
+//! let sampler = CmaEsSampler::builder()
+//!     .sigma0(1.0)
+//!     .population_size(10)
+//!     .seed(42)
+//!     .build();
+//!
+//! let mut study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 //! ```
 
 use std::collections::HashMap;

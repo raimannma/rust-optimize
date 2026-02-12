@@ -1,3 +1,53 @@
+//! Successive Halving (SHA) pruner — budget-aware pruning at exponential rungs.
+//!
+//! Trials are evaluated at exponentially-spaced "rungs" (checkpoints). At each
+//! rung, only the top 1/η fraction of trials survive to the next rung. This
+//! is a principled way to allocate compute budget: give many trials a small
+//! budget, then progressively invest more in the best ones.
+//!
+//! For example, with `min_resource=1`, `max_resource=81`, `reduction_factor=3`:
+//!
+//! | Rung | Step | Survivors |
+//! |------|------|-----------|
+//! | 0 | 1 | top 1/3 |
+//! | 1 | 3 | top 1/3 |
+//! | 2 | 9 | top 1/3 |
+//! | 3 | 27 | top 1/3 |
+//! | 4 | 81 | all (full budget) |
+//!
+//! # When to use
+//!
+//! - When your objective has a natural "budget" dimension (epochs, iterations)
+//! - When early performance is a reasonable predictor of final performance
+//! - When you want a principled alternative to median pruning
+//!
+//! If you're unsure about the right `min_resource`, consider
+//! [`HyperbandPruner`](super::HyperbandPruner) which runs multiple brackets
+//! to hedge against that choice.
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `min_resource` | 1 | Step at which the first rung is placed |
+//! | `max_resource` | 81 | Full budget (final rung, no pruning) |
+//! | `reduction_factor` | 3 | At each rung, keep top 1/η trials |
+//! | `min_early_stopping_rate` | 0 | Skip the first N rungs |
+//! | `direction` | `Minimize` | Optimization direction |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pruner::SuccessiveHalvingPruner;
+//!
+//! let pruner = SuccessiveHalvingPruner::new()
+//!     .min_resource(1)
+//!     .max_resource(81)
+//!     .reduction_factor(3)
+//!     .direction(Direction::Minimize);
+//! ```
+
 use super::Pruner;
 use crate::sampler::CompletedTrial;
 use crate::types::{Direction, TrialState};

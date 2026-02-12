@@ -1,4 +1,48 @@
 //! Quasi-random sampler using Sobol low-discrepancy sequences.
+//!
+//! [`SobolSampler`] generates points from a Sobol sequence (scrambled via the
+//! Burley 2020 algorithm) to fill the parameter space more uniformly than
+//! pure random sampling. Where [`RandomSampler`](super::random::RandomSampler)
+//! may cluster points in some regions by chance, Sobol sequences are
+//! constructed to spread points evenly across all dimensions.
+//!
+//! # When to use
+//!
+//! - **Better-than-random baseline** — when you want uniform coverage
+//!   without the cost of model fitting (TPE, GP, etc.).
+//! - **Startup phase replacement** — use Sobol instead of random for the
+//!   initial exploration phase of adaptive samplers.
+//! - **Moderate dimensionality** — Sobol uniformity is strongest up to
+//!   ~20 dimensions; beyond that the advantage over random sampling
+//!   diminishes.
+//! - **Deterministic exploration** — Sobol sequences are fully deterministic
+//!   for a given seed, making experiments reproducible.
+//!
+//! # How it works
+//!
+//! Each trial maps to a Sobol sequence index, and each parameter within a
+//! trial maps to a separate Sobol dimension. The resulting quasi-random
+//! point in \[0, 1) is then scaled to the parameter's distribution (linear,
+//! log-scale, or step grid).
+//!
+//! **Important:** parameters must be suggested in the same order across
+//! trials for consistent dimension assignment.
+//!
+//! Requires the **`sobol`** feature flag:
+//!
+//! ```toml
+//! [dependencies]
+//! optimizer = { version = "...", features = ["sobol"] }
+//! ```
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::prelude::*;
+//! use optimizer::sampler::sobol::SobolSampler;
+//!
+//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, SobolSampler::with_seed(42));
+//! ```
 
 use parking_lot::Mutex;
 use sobol_burley::sample;
@@ -17,13 +61,11 @@ struct SobolState {
 
 /// Quasi-random sampler using Sobol low-discrepancy sequences.
 ///
-/// Provides better uniform coverage of the parameter space than
-/// [`RandomSampler`](super::random::RandomSampler). Useful as a baseline or
-/// for the startup phase of model-based samplers.
-///
-/// Unlike random sampling, Sobol sequences are deterministic and fill the
-/// space more evenly, reducing the number of trials needed to adequately
-/// cover the search space.
+/// Produce better uniform coverage of the parameter space than
+/// [`RandomSampler`](super::random::RandomSampler) by using a
+/// scrambled Sobol sequence (Burley 2020). Useful as a standalone
+/// baseline or as a drop-in replacement for the random startup
+/// phase of model-based samplers.
 ///
 /// Each trial uses a different Sobol sequence index, and each parameter
 /// within a trial maps to a different Sobol dimension. Parameters must be
@@ -33,7 +75,7 @@ struct SobolState {
 /// Sobol sequences are most effective in moderate dimensions (up to ~20).
 /// For very high dimensions, the uniformity advantage diminishes.
 ///
-/// Requires the `sobol` feature flag.
+/// Requires the **`sobol`** feature flag.
 ///
 /// # Examples
 ///

@@ -1,3 +1,37 @@
+//! Percentile pruner — prune trials outside the top N% at each step.
+//!
+//! A generalization of [`MedianPruner`](super::MedianPruner) that lets you
+//! control how aggressively to prune. At each step, the current trial's
+//! intermediate value is compared against the given percentile of all
+//! completed trials' values at the same step.
+//!
+//! # When to use
+//!
+//! - When you want finer control over pruning aggressiveness than median pruning
+//! - Lower percentiles (e.g., 25%) are more aggressive — only keep the best quarter
+//! - Higher percentiles (e.g., 75%) are more lenient — keep the top three quarters
+//! - Percentile 50% is equivalent to [`MedianPruner`](super::MedianPruner)
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `percentile` | *(required)* | Keep trials in the top N% — range `(0, 100)` |
+//! | `n_warmup_steps` | 0 | Skip pruning in the first N steps |
+//! | `n_min_trials` | 1 | Require at least N completed trials before pruning |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pruner::PercentilePruner;
+//!
+//! // Keep only the top 25% of trials (aggressive pruning)
+//! let pruner = PercentilePruner::new(25.0, Direction::Minimize)
+//!     .n_warmup_steps(5)
+//!     .n_min_trials(3);
+//! ```
+
 use super::Pruner;
 use crate::sampler::CompletedTrial;
 use crate::types::{Direction, TrialState};

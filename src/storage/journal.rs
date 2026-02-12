@@ -1,4 +1,72 @@
 //! JSONL-based journal storage backend.
+//!
+//! [`JournalStorage`] persists completed trials as one JSON object per
+//! line ([JSONL / JSON Lines](https://jsonlines.org/)) while keeping a
+//! full copy in memory for fast read access.
+//!
+//! # File format
+//!
+//! Each line is a self-contained JSON serialization of a
+//! [`CompletedTrial<V>`](crate::sampler::CompletedTrial).  The file
+//! is append-only — no existing lines are ever modified or deleted.
+//!
+//! ```text
+//! {"id":0,"params":{...},"value":1.23,"state":"Completed",...}
+//! {"id":1,"params":{...},"value":0.87,"state":"Completed",...}
+//! ```
+//!
+//! # File locking
+//!
+//! Concurrent access is coordinated with `fs2` file locks:
+//!
+//! - **Writes** acquire an *exclusive* lock so only one process
+//!   appends at a time.
+//! - **Reads** ([`refresh`](super::Storage::refresh)) acquire a
+//!   *shared* lock so readers never see a partially written line.
+//!
+//! This makes it safe for multiple processes to share the same JSONL
+//! file — for example, distributed workers each running their own
+//! [`Study`](crate::Study) with a `JournalStorage` pointing to a
+//! shared path.
+//!
+//! # Resuming a study
+//!
+//! Use [`JournalStorage::open`] to reload previously persisted trials
+//! and continue optimization from where you left off:
+//!
+//! ```no_run
+//! use optimizer::prelude::*;
+//! use optimizer::storage::JournalStorage;
+//!
+//! // First run — creates the file.
+//! let storage = JournalStorage::<f64>::new("trials.jsonl");
+//! let mut study = Study::builder().minimize().storage(storage).build();
+//! study
+//!     .optimize(50, |trial| {
+//!         let x = FloatParam::new(-5.0, 5.0).suggest(trial)?;
+//!         Ok::<_, optimizer::Error>(x * x)
+//!     })
+//!     .unwrap();
+//!
+//! // Later run — reloads previous 50 trials, then adds 50 more.
+//! let storage = JournalStorage::<f64>::open("trials.jsonl").unwrap();
+//! let mut study = Study::builder().minimize().storage(storage).build();
+//! study
+//!     .optimize(50, |trial| {
+//!         let x = FloatParam::new(-5.0, 5.0).suggest(trial)?;
+//!         Ok::<_, optimizer::Error>(x * x)
+//!     })
+//!     .unwrap();
+//! ```
+//!
+//! # When to use
+//!
+//! - **Persistence** — survive process crashes or intentional restarts.
+//! - **Multi-process** — several workers collaborating on a single study.
+//! - **Inspection** — `cat trials.jsonl | jq .` for quick debugging.
+//!
+//! For pure in-memory usage without disk I/O, use
+//! [`MemoryStorage`](super::MemoryStorage) instead (the default).
 
 use core::marker::PhantomData;
 use std::fs::{File, OpenOptions};
@@ -14,22 +82,30 @@ use serde::de::DeserializeOwned;
 use super::{MemoryStorage, Storage};
 use crate::sampler::CompletedTrial;
 
-/// A storage backend that appends completed trials as JSON lines to a file.
+/// Append-only JSONL storage backend with file locking.
 ///
-/// Trials are kept in memory for fast read access and simultaneously
-/// persisted to a JSONL file.  Multiple processes can safely share
-/// the same file: writes use an exclusive file lock, reads use a
-/// shared file lock.
+/// Trials are kept in memory (via an inner [`MemoryStorage`]) for fast
+/// read access and simultaneously appended to a JSONL file on disk.
+/// Multiple processes can safely share the same file thanks to
+/// `fs2` file locks — writes use an exclusive lock, reads use a
+/// shared lock.
 ///
-/// The type parameter `V` is the objective value type (typically `f64`).
-/// It must be serializable so that trials can be written to disk.
+/// The type parameter `V` is the objective value type (typically
+/// `f64`).  It must implement [`Serialize`](serde::Serialize) and
+/// [`DeserializeOwned`](serde::de::DeserializeOwned) so trials can be
+/// written to and read from disk.
 ///
-/// # Examples
+/// See the [`storage`](super) module docs for file format details
+/// and a resumption example.
+///
+/// # Example
 ///
 /// ```no_run
+/// use optimizer::prelude::*;
 /// use optimizer::storage::JournalStorage;
 ///
-/// let storage: JournalStorage<f64> = JournalStorage::new("trials.jsonl");
+/// let storage = JournalStorage::<f64>::new("trials.jsonl");
+/// let mut study = Study::builder().minimize().storage(storage).build();
 /// ```
 pub struct JournalStorage<V = f64> {
     memory: MemoryStorage<V>,
@@ -40,14 +116,15 @@ pub struct JournalStorage<V = f64> {
 }
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> JournalStorage<V> {
-    /// Creates a new journal storage that writes to the given path.
+    /// Create a new journal storage that writes to the given path.
     ///
     /// The file does not need to exist yet — it will be created on the
     /// first write.  Existing trials in the file are **not** loaded
     /// until [`refresh`](Storage::refresh) is called (which happens
     /// automatically at the start of each trial via the [`Study`](crate::Study)).
     ///
-    /// To pre-load existing trials, use [`JournalStorage::open`].
+    /// To pre-load existing trials at construction time, use
+    /// [`JournalStorage::open`] instead.
     #[must_use]
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
@@ -58,13 +135,14 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> JournalStorage<V> {
         }
     }
 
-    /// Opens an existing journal file and loads all stored trials.
+    /// Open an existing journal file and load all stored trials.
     ///
-    /// If the file does not exist, returns an empty storage (no error).
+    /// If the file does not exist, return an empty storage (no error).
+    /// This is the primary way to **resume** a study after a restart.
     ///
     /// # Errors
     ///
-    /// Returns a [`Storage`](crate::Error::Storage) error if the file
+    /// Return a [`Storage`](crate::Error::Storage) error if the file
     /// exists but cannot be read or parsed.
     pub fn open(path: impl AsRef<Path>) -> crate::Result<Self> {
         let path = path.as_ref().to_path_buf();

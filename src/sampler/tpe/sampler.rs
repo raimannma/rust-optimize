@@ -102,7 +102,7 @@ use crate::sampler::{CompletedTrial, Sampler};
 ///
 /// // Create with custom settings using the builder
 /// let sampler = TpeSampler::builder()
-///     .gamma(0.15)  // Shorthand for Fixednew(0.15)
+///     .gamma(0.15)  // Shorthand for FixedGamma::new(0.15)
 ///     .n_startup_trials(20)
 ///     .n_ei_candidates(32)
 ///     .seed(42)

@@ -167,15 +167,53 @@ pub enum ConstantLiarStrategy {
 
 /// A Multivariate Tree-Parzen Estimator (TPE) sampler for Bayesian optimization.
 ///
-/// This sampler extends the standard TPE approach by modeling joint distributions
-/// over all parameters, allowing it to capture parameter correlations.
+/// Unlike the standard [`super::TpeSampler`], which samples each parameter
+/// independently, this sampler models joint distributions over all parameters
+/// using multivariate KDE. This captures correlations between parameters and
+/// can significantly improve optimization on problems where parameters interact
+/// (e.g., Rosenbrock, coupled hyperparameters).
 ///
-/// # Fields
+/// When the search space varies between trials (conditional parameters), the
+/// sampler automatically falls back to independent TPE or uniform sampling for
+/// parameters outside the intersection search space.
 ///
-/// - `gamma_strategy`: Strategy for computing the gamma quantile
-/// - `n_startup_trials`: Number of random trials before TPE sampling begins
-/// - `n_ei_candidates`: Number of candidates to evaluate per joint sample
-/// - `group`: Whether to decompose search space into independent groups
+/// # When to use
+///
+/// - Parameters are correlated or interact with each other.
+/// - The search space is mostly fixed across trials.
+/// - You need parallel optimization (enable [`ConstantLiarStrategy`]).
+///
+/// Prefer [`super::TpeSampler`] when parameters are independent or the search space changes
+/// dynamically.
+///
+/// # Examples
+///
+/// ```
+/// use optimizer::parameter::{FloatParam, Parameter};
+/// use optimizer::sampler::tpe::MultivariateTpeSampler;
+/// use optimizer::{Direction, Study};
+///
+/// let sampler = MultivariateTpeSampler::builder()
+///     .gamma(0.15)
+///     .n_startup_trials(20)
+///     .seed(42)
+///     .build()
+///     .unwrap();
+///
+/// let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+/// let x = FloatParam::new(-5.0, 5.0);
+/// let y = FloatParam::new(-5.0, 5.0);
+///
+/// study
+///     .optimize(30, |trial| {
+///         let xv = x.suggest(trial)?;
+///         let yv = y.suggest(trial)?;
+///         Ok::<_, optimizer::Error>(xv * xv + yv * yv)
+///     })
+///     .unwrap();
+///
+/// assert!(study.best_value().unwrap() < 1.0);
+/// ```
 pub struct MultivariateTpeSampler {
     /// Strategy for computing the gamma quantile.
     gamma_strategy: Arc<dyn GammaStrategy>,

@@ -1,8 +1,58 @@
 //! MOEA/D (Multi-Objective Evolutionary Algorithm based on Decomposition) sampler.
 //!
-//! Decomposes a multi-objective problem into scalar subproblems using
-//! weight vectors and solves them collaboratively. Supports Weighted Sum,
-//! Tchebycheff, and Penalty-based Boundary Intersection (PBI) scalarization.
+//! MOEA/D takes a fundamentally different approach from Pareto-based
+//! algorithms like NSGA-II/III. It **decomposes** the multi-objective
+//! problem into a set of scalar subproblems using evenly distributed
+//! weight vectors (Das-Dennis points), then solves them collaboratively
+//! through **neighborhood-based mating and replacement**.
+//!
+//! # Algorithm
+//!
+//! 1. **Decompose** — generate weight vectors on the unit simplex and
+//!    assign one scalar subproblem per weight vector.
+//! 2. **Build neighborhoods** — for each subproblem, find its T nearest
+//!    neighbors by Euclidean distance between weight vectors.
+//! 3. **Mate from neighborhood** — select parents from the neighborhood
+//!    of each subproblem and produce offspring via SBX crossover +
+//!    polynomial mutation.
+//! 4. **Scalarize and update** — evaluate offspring using a scalarization
+//!    function and update neighboring subproblems if the offspring improves
+//!    their scalar value.
+//! 5. **Update ideal point** — track the best value seen per objective.
+//!
+//! # Scalarization methods
+//!
+//! | Method | Formula | Best for |
+//! |--------|---------|----------|
+//! | [`Tchebycheff`](Decomposition::Tchebycheff) (default) | `max(wᵢ * \|fᵢ - zᵢ*\|)` | General purpose, handles non-convex fronts |
+//! | [`WeightedSum`](Decomposition::WeightedSum) | `Σ(wᵢ * fᵢ)` | Convex Pareto fronts only |
+//! | [`Pbi`](Decomposition::Pbi) | `d₁ + θ * d₂` | Fine-grained convergence/diversity control |
+//!
+//! # When to use
+//!
+//! - Problems where you want **evenly distributed** solutions along the
+//!   Pareto front (one solution per weight direction).
+//! - Many-objective optimization (3+ objectives) — scales well because
+//!   each subproblem is a simple scalar optimization.
+//! - Problems with **non-convex** Pareto fronts (use Tchebycheff or PBI).
+//! - When you need explicit control over the trade-off distribution via
+//!   weight vectors.
+//!
+//! For Pareto-based approaches, see
+//! [`Nsga2Sampler`](super::nsga2::Nsga2Sampler) (crowding distance) or
+//! [`Nsga3Sampler`](super::nsga3::Nsga3Sampler) (reference-point niching).
+//!
+//! # Configuration
+//!
+//! | Parameter | Builder method | Default |
+//! |-----------|---------------|---------|
+//! | Population size | [`population_size`](MoeadSamplerBuilder::population_size) | Number of Das-Dennis weight vectors |
+//! | Neighborhood size (T) | [`neighborhood_size`](MoeadSamplerBuilder::neighborhood_size) | `min(20, pop_size)` |
+//! | Decomposition method | [`decomposition`](MoeadSamplerBuilder::decomposition) | Tchebycheff |
+//! | Crossover probability | [`crossover_prob`](MoeadSamplerBuilder::crossover_prob) | 1.0 |
+//! | SBX distribution index | [`crossover_eta`](MoeadSamplerBuilder::crossover_eta) | 20.0 |
+//! | Mutation distribution index | [`mutation_eta`](MoeadSamplerBuilder::mutation_eta) | 20.0 |
+//! | Random seed | [`seed`](MoeadSamplerBuilder::seed) | random |
 //!
 //! # Examples
 //!
@@ -37,15 +87,29 @@ use crate::multi_objective::MultiObjectiveTrial;
 use crate::param::ParamValue;
 use crate::types::Direction;
 
-/// Decomposition (scalarization) method for MOEA/D.
+/// Decomposition (scalarization) method for [`MoeadSampler`].
+///
+/// Control how multi-objective values are reduced to a single scalar
+/// for each subproblem. The default is [`Tchebycheff`](Self::Tchebycheff),
+/// which handles both convex and non-convex Pareto fronts.
 #[derive(Debug, Clone, Default)]
 pub enum Decomposition {
-    /// Weighted sum: `sum(w_i * f_i)`.
+    /// Weighted sum: `Σ(wᵢ * fᵢ)`.
+    ///
+    /// Simplest method but can only find solutions on convex regions
+    /// of the Pareto front.
     WeightedSum,
-    /// Tchebycheff: `max(w_i * |f_i - z_i*|)`.
+    /// Tchebycheff: `max(wᵢ * |fᵢ - zᵢ*|)`.
+    ///
+    /// Handles non-convex Pareto fronts. The most commonly used
+    /// decomposition method (default).
     #[default]
     Tchebycheff,
-    /// Penalty-based Boundary Intersection with parameter theta.
+    /// Penalty-based Boundary Intersection: `d₁ + θ * d₂`.
+    ///
+    /// Provides fine-grained control over the convergence/diversity
+    /// balance via the penalty parameter `theta`. Higher `theta`
+    /// favors solutions closer to the weight direction.
     Pbi {
         /// Penalty parameter controlling the balance between convergence
         /// and diversity. Default: 5.0.
@@ -55,9 +119,14 @@ pub enum Decomposition {
 
 /// MOEA/D sampler for multi-objective optimization.
 ///
-/// Decomposes the multi-objective problem into scalar subproblems
-/// using weight vectors, solving them collaboratively via
-/// neighborhood-based mating and replacement.
+/// Decompose a multi-objective problem into scalar subproblems using
+/// weight vectors and solve them collaboratively via neighborhood-based
+/// mating. Supports [`Tchebycheff`](Decomposition::Tchebycheff),
+/// [`WeightedSum`](Decomposition::WeightedSum), and
+/// [`Pbi`](Decomposition::Pbi) scalarization.
+///
+/// Create with [`MoeadSampler::new`], [`MoeadSampler::with_seed`], or
+/// [`MoeadSampler::builder`] for full configuration.
 pub struct MoeadSampler {
     state: Mutex<MoeadState>,
 }

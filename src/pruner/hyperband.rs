@@ -1,3 +1,47 @@
+//! `HyperBand` pruner — adaptive budget scheduling with multiple SHA brackets.
+//!
+//! `HyperBand` addresses the main weakness of
+//! [`SuccessiveHalvingPruner`](super::SuccessiveHalvingPruner): sensitivity to
+//! the `min_resource` setting. It runs multiple Successive Halving brackets in
+//! parallel, each with a different trade-off between the number of trials and
+//! the starting budget:
+//!
+//! - **Bracket 0**: many trials, small starting budget (aggressive early pruning)
+//! - **Bracket `s_max`**: few trials, full budget (no pruning)
+//!
+//! Trials are assigned to brackets in round-robin order. This ensures that
+//! the overall search is robust regardless of how informative early steps are.
+//!
+//! # When to use
+//!
+//! - When you don't know how many epochs/steps are needed before performance
+//!   becomes predictive
+//! - As a drop-in upgrade over [`SuccessiveHalvingPruner`](super::SuccessiveHalvingPruner)
+//!   when you can afford more total trials
+//! - For large-scale hyperparameter searches where compute savings matter most
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `min_resource` | 1 | Smallest budget for the most aggressive bracket |
+//! | `max_resource` | 81 | Full budget (last rung in every bracket) |
+//! | `reduction_factor` | 3 | At each rung, keep top 1/η trials |
+//! | `direction` | `Minimize` | Optimization direction |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pruner::HyperbandPruner;
+//!
+//! let pruner = HyperbandPruner::new()
+//!     .min_resource(1)
+//!     .max_resource(81)
+//!     .reduction_factor(3)
+//!     .direction(Direction::Minimize);
+//! ```
+
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -6,7 +50,7 @@ use super::Pruner;
 use crate::sampler::CompletedTrial;
 use crate::types::{Direction, TrialState};
 
-/// Hyperband pruner that manages multiple Successive Halving brackets.
+/// `HyperBand` pruner that manages multiple Successive Halving brackets.
 ///
 /// Hyperband addresses SHA's sensitivity to the `min_resource` choice by
 /// running multiple brackets, each with a different tradeoff between the

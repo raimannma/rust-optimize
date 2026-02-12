@@ -1,3 +1,44 @@
+//! Wilcoxon pruner — statistically rigorous pruning for noisy objectives.
+//!
+//! Uses the Wilcoxon signed-rank test to compare the current trial's
+//! intermediate values against the best completed trial at matching steps.
+//! The test accounts for the paired, step-aligned nature of the comparison
+//! and only prunes when the difference is statistically significant.
+//!
+//! This is more principled than [`MedianPruner`](super::MedianPruner) for
+//! noisy objectives because a single bad step won't trigger pruning — the
+//! test considers the full distribution of paired differences.
+//!
+//! # When to use
+//!
+//! - When intermediate values have high variance (e.g., mini-batch loss,
+//!   stochastic reward signals)
+//! - When you want a statistical guarantee that pruned trials are truly worse
+//! - When you have enough steps (at least 6) for a meaningful test
+//!
+//! For less noisy objectives, [`MedianPruner`](super::MedianPruner) is simpler
+//! and often sufficient.
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `p_value_threshold` | 0.05 | Significance level — lower is more conservative |
+//! | `n_warmup_steps` | 0 | Skip pruning in the first N steps |
+//! | `n_min_trials` | 1 | Require at least N completed trials before pruning |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pruner::WilcoxonPruner;
+//!
+//! let pruner = WilcoxonPruner::new(Direction::Minimize)
+//!     .p_value_threshold(0.05)
+//!     .n_warmup_steps(5)
+//!     .n_min_trials(1);
+//! ```
+
 use core::cmp::Ordering;
 
 use super::Pruner;

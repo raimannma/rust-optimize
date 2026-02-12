@@ -1,3 +1,39 @@
+//! Median pruner — the recommended default pruner for most use cases.
+//!
+//! At each step, the current trial's intermediate value is compared against
+//! the median of all completed trials' values at the same step. Trials
+//! performing worse than the median are pruned.
+//!
+//! This is a convenience wrapper around [`PercentilePruner`](super::PercentilePruner)
+//! with a fixed percentile of 50%.
+//!
+//! # When to use
+//!
+//! - **Default choice** for any iterative objective (e.g., neural network training)
+//! - Works well when intermediate values are a reasonable proxy for final performance
+//! - Prunes roughly half of unpromising trials, giving a good speed/accuracy balance
+//!
+//! If your intermediate values are noisy, consider [`WilcoxonPruner`](super::WilcoxonPruner)
+//! or wrapping this pruner in a [`PatientPruner`](super::PatientPruner).
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `n_warmup_steps` | 0 | Skip pruning in the first N steps |
+//! | `n_min_trials` | 1 | Require at least N completed trials before pruning |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::Direction;
+//! use optimizer::pruner::MedianPruner;
+//!
+//! let pruner = MedianPruner::new(Direction::Minimize)
+//!     .n_warmup_steps(5)
+//!     .n_min_trials(3);
+//! ```
+
 use super::Pruner;
 use super::percentile::compute_percentile;
 use crate::sampler::CompletedTrial;

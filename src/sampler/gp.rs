@@ -1,15 +1,60 @@
 //! Gaussian Process (GP) sampler with Expected Improvement acquisition.
 //!
-//! A classical Bayesian optimization sampler that uses a Gaussian Process
-//! surrogate model with a Matérn 5/2 kernel and Expected Improvement (EI)
+//! A classical Bayesian optimization sampler that builds a Gaussian Process
+//! surrogate model with a **Matérn 5/2 kernel** (with ARD lengthscales) and
+//! selects the next trial by maximizing the **Expected Improvement (EI)**
 //! acquisition function. Best suited for small, expensive evaluations in
 //! low-dimensional continuous spaces (d ≤ 20).
 //!
-//! Categorical parameters are sampled uniformly at random (not part of
-//! the GP model). If all parameters are categorical, the sampler falls
-//! back to pure random sampling.
+//! # Algorithm overview
 //!
-//! Requires the `gp` feature flag.
+//! 1. **Startup phase** — the first `n_startup_trials` trials are sampled
+//!    uniformly at random to build an initial dataset.
+//! 2. **Fit GP** — training observations are standardized (zero mean, unit
+//!    variance) and a GP with Matérn 5/2 kernel is fitted via Cholesky
+//!    decomposition. ARD lengthscales are set to the per-dimension standard
+//!    deviation of the training inputs.
+//! 3. **Maximize EI** — `n_candidates` random points are evaluated under
+//!    the GP posterior and the point with the highest Expected Improvement
+//!    is returned as the next trial.
+//!
+//! The GP uses at most 100 training points (the most recent ones) to keep
+//! the O(n³) fitting cost manageable.
+//!
+//! # When to use
+//!
+//! - **Expensive objective functions** where every evaluation is costly
+//!   (e.g. physical experiments, large simulations). The GP surrogate
+//!   amortizes this cost by making fewer evaluations.
+//! - **Low-dimensional continuous spaces** — typically d ≤ 20. Beyond that,
+//!   the GP becomes unreliable and alternatives like
+//!   [`CmaEsSampler`](super::cma_es::CmaEsSampler) or
+//!   [`TpeSampler`](super::tpe::TpeSampler) are preferable.
+//! - **Smooth, low-noise objectives** — the GP assumes smoothness through
+//!   the Matérn 5/2 kernel. Very noisy objectives require increasing
+//!   `noise_variance`.
+//!
+//! Categorical parameters are sampled uniformly at random and do not
+//! participate in the GP model. If all parameters are categorical, the
+//! sampler falls back to pure random sampling.
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `n_startup_trials` | 10 | Random trials before GP-guided sampling begins |
+//! | `n_candidates` | 1000 | Random candidates for EI maximization |
+//! | `noise_variance` | 1e-6 | Observation noise added to kernel diagonal |
+//! | `seed` | random | RNG seed for reproducibility |
+//!
+//! # Feature flag
+//!
+//! Requires the **`gp`** feature (adds the `nalgebra` dependency):
+//!
+//! ```toml
+//! [dependencies]
+//! optimizer = { version = "...", features = ["gp"] }
+//! ```
 //!
 //! # Examples
 //!
@@ -17,8 +62,14 @@
 //! use optimizer::sampler::gp::GpSampler;
 //! use optimizer::{Direction, Study};
 //!
-//! let sampler = GpSampler::with_seed(42);
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+//! // Minimize an expensive function with GP-based Bayesian optimization
+//! let sampler = GpSampler::builder()
+//!     .n_startup_trials(5)
+//!     .n_candidates(500)
+//!     .seed(42)
+//!     .build();
+//!
+//! let mut study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 //! ```
 
 use std::collections::HashMap;

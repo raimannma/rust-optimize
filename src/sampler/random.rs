@@ -1,4 +1,31 @@
-//! Random sampler implementation.
+//! Random sampler — uniform independent sampling.
+//!
+//! [`RandomSampler`] draws each parameter value independently and uniformly
+//! at random, ignoring trial history entirely. It respects log-scale and
+//! step-size constraints defined by the parameter distribution.
+//!
+//! # When to use
+//!
+//! - **Baseline comparison** — run Random alongside smarter samplers to
+//!   quantify their benefit.
+//! - **Startup phase** — many model-based samplers (TPE, GP, CMA-ES) use
+//!   random sampling for their first *n* trials before fitting a surrogate.
+//! - **Very high dimensions** — when the search space is too large for
+//!   structured exploration, random search with enough budget can be
+//!   surprisingly competitive.
+//!
+//! For better uniform coverage without model fitting, consider
+//! [`SobolSampler`](super::sobol::SobolSampler) (requires the `sobol`
+//! feature flag).
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::prelude::*;
+//! use optimizer::sampler::random::RandomSampler;
+//!
+//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
+//! ```
 
 use parking_lot::Mutex;
 
@@ -7,11 +34,15 @@ use crate::param::ParamValue;
 use crate::rng_util;
 use crate::sampler::{CompletedTrial, Sampler};
 
-/// A simple random sampler that samples uniformly from distributions.
+/// Uniform independent random sampler.
 ///
-/// This sampler ignores the trial history and samples uniformly at random,
-/// respecting log scale and step size constraints. It serves as a baseline
-/// sampler and is used during the startup phase of more sophisticated samplers.
+/// Sample each parameter value uniformly at random, respecting log-scale and
+/// step-size constraints. Trial history is ignored — every sample is drawn
+/// independently.
+///
+/// This is the default sampler used by [`Study::new`](crate::Study::new)
+/// and during the startup phase of model-based samplers such as
+/// [`TpeSampler`](super::tpe::TpeSampler).
 ///
 /// # Examples
 ///

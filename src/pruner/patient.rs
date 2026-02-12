@@ -1,3 +1,34 @@
+//! Patient pruner — require consecutive prune signals before actually pruning.
+//!
+//! Wraps any other pruner and adds a patience window: the inner pruner
+//! must recommend pruning for `patience` consecutive steps before the
+//! trial is actually pruned. This prevents premature pruning when
+//! intermediate values are noisy and a single bad step doesn't indicate
+//! a truly bad trial.
+//!
+//! # When to use
+//!
+//! - When your intermediate values have high variance (e.g., mini-batch loss)
+//! - When the inner pruner is too aggressive on its own
+//! - To add robustness to any statistical pruner without changing its threshold
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `inner` | *(required)* | The underlying pruner to wrap |
+//! | `patience` | *(required)* | Number of consecutive prune signals required |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::pruner::{PatientPruner, ThresholdPruner};
+//!
+//! // Only prune after the threshold is exceeded 3 times in a row
+//! let inner = ThresholdPruner::new().upper(100.0);
+//! let pruner = PatientPruner::new(inner, 3);
+//! ```
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

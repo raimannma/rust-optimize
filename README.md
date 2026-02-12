@@ -1,155 +1,69 @@
 # optimizer
 
-A Rust library for black-box optimization with multiple sampling strategies.
+Bayesian and population-based optimization library with an Optuna-like API
+for hyperparameter tuning and black-box optimization. Supports 12 samplers,
+8 pruners, multi-objective optimization, async parallelism, and persistent storage.
 
 [![Docs](https://docs.rs/optimizer/badge.svg)](https://docs.rs/optimizer)
 [![Crates.io](https://img.shields.io/crates/v/optimizer.svg)](https://crates.io/crates/optimizer)
 [![codecov](https://codecov.io/gh/raimannma/rust-optimizer/graph/badge.svg?token=WOE77XJ4M6)](https://codecov.io/gh/raimannma/rust-optimizer)
 
-## Features
-
-- Optuna-like API for hyperparameter optimization
-- Multiple sampling strategies:
-  - **Random Search** - Simple random sampling for baseline comparisons
-  - **TPE (Tree-Parzen Estimator)** - Bayesian optimization for efficient search
-  - **Grid Search** - Exhaustive search over a specified parameter grid
-- Float, integer, categorical, boolean, and enum parameter types
-- Log-scale and stepped parameter sampling
-- Sync and async optimization with parallel trial evaluation
-- `#[derive(Categorical)]` for enum parameters
-
 ## Quick Start
 
 ```rust
-use optimizer::parameter::{FloatParam, Parameter};
-use optimizer::sampler::tpe::TpeSampler;
-use optimizer::{Direction, Study};
+use optimizer::prelude::*;
 
-// Create a study with TPE sampler
-let sampler = TpeSampler::builder().seed(42).build().unwrap();
-let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
+let study: Study<f64> = Study::new(Direction::Minimize);
+let x = FloatParam::new(-10.0, 10.0).name("x");
 
-// Define parameter search space
-let x_param = FloatParam::new(-10.0, 10.0);
+study.optimize(50, |trial| {
+    let val = x.suggest(trial)?;
+    Ok::<_, Error>((val - 3.0).powi(2))
+}).unwrap();
 
-// Optimize x^2 for 20 trials
-study
-    .optimize_with_sampler(20, |trial| {
-        let x = x_param.suggest(trial)?;
-        Ok::<_, optimizer::Error>(x * x)
-    })
-    .unwrap();
-
-// Get the best result
 let best = study.best_trial().unwrap();
-println!("Best value: {}", best.value);
-for (id, label) in &best.param_labels {
-    println!("  {}: {:?}", label, best.params[id]);
-}
+println!("Best x = {:.4}, f(x) = {:.4}", best.get(&x).unwrap(), best.value);
 ```
 
-## Samplers
+## Features at a Glance
 
-### Random Search
-
-```rust
-use optimizer::{Direction, Study};
-use optimizer::sampler::random::RandomSampler;
-
-let study: Study<f64> = Study::with_sampler(
-    Direction::Minimize,
-    RandomSampler::with_seed(42),
-);
-```
-
-### TPE (Tree-Parzen Estimator)
-
-```rust
-use optimizer::{Direction, Study};
-use optimizer::sampler::tpe::TpeSampler;
-
-let sampler = TpeSampler::builder()
-    .gamma(0.15)           // Quantile for good/bad split
-    .n_startup_trials(20)  // Random trials before TPE kicks in
-    .n_ei_candidates(32)   // Candidates to evaluate
-    .seed(42)
-    .build()
-    .unwrap();
-
-let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-```
-
-#### Gamma Strategies
-
-The gamma parameter controls what fraction of trials are considered "good" when building the TPE model. Instead of a fixed value, you can use adaptive strategies:
-
-| Strategy | Description | Formula |
-|----------|-------------|---------|
-| `FixedGamma` | Constant value (default: 0.25) | `γ = constant` |
-| `LinearGamma` | Linear interpolation over trials | `γ = γ_min + (γ_max - γ_min) * min(n/n_max, 1)` |
-| `SqrtGamma` | Optuna-style inverse sqrt scaling | `γ = min(γ_max, factor/√n / n)` |
-| `HyperoptGamma` | Hyperopt-style adaptive | `γ = min(γ_max, (base + 1) / n)` |
-
-```rust
-use optimizer::sampler::tpe::{TpeSampler, SqrtGamma, LinearGamma};
-
-// Optuna-style gamma that decreases with more trials
-let sampler = TpeSampler::builder()
-    .gamma_strategy(SqrtGamma::default())
-    .build()
-    .unwrap();
-
-// Linear interpolation from 0.1 to 0.3 over 100 trials
-let sampler = TpeSampler::builder()
-    .gamma_strategy(LinearGamma::new(0.1, 0.3, 100).unwrap())
-    .build()
-    .unwrap();
-```
-
-You can also implement custom strategies:
-
-```rust
-use optimizer::sampler::tpe::{TpeSampler, GammaStrategy};
-
-#[derive(Debug, Clone)]
-struct MyGamma { base: f64 }
-
-impl GammaStrategy for MyGamma {
-    fn gamma(&self, n_trials: usize) -> f64 {
-        (self.base + 0.01 * n_trials as f64).min(0.5)
-    }
-    fn clone_box(&self) -> Box<dyn GammaStrategy> {
-        Box::new(self.clone())
-    }
-}
-
-let sampler = TpeSampler::builder()
-    .gamma_strategy(MyGamma { base: 0.1 })
-    .build()
-    .unwrap();
-```
-
-### Grid Search
-
-```rust
-use optimizer::{Direction, Study};
-use optimizer::sampler::grid::GridSearchSampler;
-
-let sampler = GridSearchSampler::builder()
-    .n_points_per_param(10)  // Number of points per parameter dimension
-    .build();
-
-let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-```
+- **[Samplers](https://docs.rs/optimizer/latest/optimizer/sampler/)** — Random, TPE, Multivariate TPE, Grid, Sobol, CMA-ES, Gaussian Process, Differential Evolution, BOHB, NSGA-II, NSGA-III, MOEA/D
+- **[Pruners](https://docs.rs/optimizer/latest/optimizer/pruner/)** — Median, Percentile, Threshold, Patient, Hyperband, Successive Halving, Wilcoxon, Nop
+- **[Parameters](https://docs.rs/optimizer/latest/optimizer/parameter/)** — Float, Int, Categorical, Bool, and Enum types with `.name()` labels and typed access
+- **[Multi-objective](https://docs.rs/optimizer/latest/optimizer/multi_objective/)** — Pareto front extraction with NSGA-II/III and MOEA/D
+- **[Async & parallel](https://docs.rs/optimizer/latest/optimizer/struct.Study.html#method.optimize_parallel)** — Concurrent trial evaluation with Tokio
+- **[Storage backends](https://docs.rs/optimizer/latest/optimizer/storage/)** — In-memory (default) or JSONL journal for persistence and resumption
+- **[Visualization](https://docs.rs/optimizer/latest/optimizer/fn.generate_html_report.html)** — HTML reports with optimization history, parameter importance, and Pareto fronts
+- **[Analysis](https://docs.rs/optimizer/latest/optimizer/struct.Study.html#method.fanova)** — fANOVA and Spearman correlation for parameter importance
 
 ## Feature Flags
 
-- `async` - Enable async optimization methods (requires tokio)
-- `derive` - Enable `#[derive(Categorical)]` for enum parameters
+| Flag | Enables | Default |
+|------|---------|---------|
+| `async` | Async/parallel optimization (Tokio) | No |
+| `derive` | `#[derive(Categorical)]` for enum parameters | No |
+| `serde` | Serialization of trials and parameters | No |
+| `journal` | JSONL storage backend (implies `serde`) | No |
+| `sobol` | Sobol quasi-random sampler | No |
+| `cma-es` | CMA-ES sampler (requires `nalgebra`) | No |
+| `gp` | Gaussian Process sampler (requires `nalgebra`) | No |
+| `tracing` | Structured logging with `tracing` | No |
 
-## Documentation
+## Examples
 
-Full API documentation is available at [docs.rs/optimizer](https://docs.rs/optimizer).
+```sh
+cargo run --example basic_optimization          # Minimize a quadratic — simplest possible usage
+cargo run --example sampler_comparison          # Compare Random, TPE, and Grid on the same problem
+cargo run --example pruning_and_callbacks       # Trial pruning with MedianPruner + early stopping
+cargo run --example parameter_types --features derive       # All 5 param types + #[derive(Categorical)]
+cargo run --example advanced_features --features async,journal  # Async, journal storage, ask-and-tell, multi-objective
+```
+
+## Learn More
+
+- [API documentation](https://docs.rs/optimizer)
+- [Changelog](CHANGELOG.md)
+- [GitHub Issues](https://github.com/raimannma/rust-optimizer/issues)
 
 ## License
 

@@ -1,9 +1,49 @@
 //! NSGA-III (Non-dominated Sorting Genetic Algorithm III) sampler.
 //!
-//! Uses reference-point-based niching for better diversity in
-//! many-objective (3+) optimization problems. Das-Dennis structured
-//! reference points guide the search toward a well-distributed
-//! Pareto front.
+//! NSGA-III extends NSGA-II to handle **many-objective** (3+) problems
+//! where crowding distance loses effectiveness. Instead of crowding
+//! distance, it uses **reference-point-based niching** with structured
+//! Das-Dennis reference points distributed on the unit simplex to guide
+//! the population toward a well-diversified Pareto front.
+//!
+//! # Algorithm
+//!
+//! Each generation proceeds as follows:
+//!
+//! 1. **Non-dominated sorting** — same as NSGA-II, partition the
+//!    combined population into Pareto fronts F₁, F₂, …
+//! 2. **Normalize objectives** — translate by ideal point and scale by
+//!    intercepts so all objectives lie in roughly \[0, 1\].
+//! 3. **Associate with reference points** — assign each solution to the
+//!    closest Das-Dennis reference direction by perpendicular distance.
+//! 4. **Niching selection** — when the last front only partially fits,
+//!    prefer solutions associated with under-represented reference points
+//!    (lowest niche count first, closest distance second).
+//! 5. **SBX crossover + polynomial mutation** — generate offspring via
+//!    rank-based tournament selection.
+//!
+//! # When to use
+//!
+//! - **Three or more objectives** — NSGA-III maintains diversity far
+//!   better than NSGA-II as the number of objectives grows.
+//! - Problems where you want a **uniformly distributed** Pareto front
+//!   guided by structured reference points.
+//! - Scales well up to ~10 objectives with appropriate division settings.
+//!
+//! For bi-objective problems, [`Nsga2Sampler`](super::nsga2::Nsga2Sampler)
+//! is simpler and equally effective. For decomposition-based optimization,
+//! see [`MoeadSampler`](super::moead::MoeadSampler).
+//!
+//! # Configuration
+//!
+//! | Parameter | Builder method | Default |
+//! |-----------|---------------|---------|
+//! | Population size | [`population_size`](Nsga3SamplerBuilder::population_size) | Number of Das-Dennis reference points |
+//! | Das-Dennis divisions (H) | [`n_divisions`](Nsga3SamplerBuilder::n_divisions) | Auto-chosen from population size and objectives |
+//! | Crossover probability | [`crossover_prob`](Nsga3SamplerBuilder::crossover_prob) | 1.0 |
+//! | SBX distribution index | [`crossover_eta`](Nsga3SamplerBuilder::crossover_eta) | 30.0 |
+//! | Mutation distribution index | [`mutation_eta`](Nsga3SamplerBuilder::mutation_eta) | 20.0 |
+//! | Random seed | [`seed`](Nsga3SamplerBuilder::seed) | random |
 //!
 //! # Examples
 //!
@@ -49,8 +89,12 @@ use crate::types::Direction;
 
 /// NSGA-III sampler for multi-objective optimization.
 ///
-/// Uses reference-point-based niching to maintain diversity,
-/// especially effective for problems with 3 or more objectives.
+/// Use reference-point niching with Das-Dennis structured points to
+/// maintain diversity in many-objective (3+) problems. For bi-objective
+/// problems, [`Nsga2Sampler`](super::nsga2::Nsga2Sampler) is simpler.
+///
+/// Create with [`Nsga3Sampler::new`], [`Nsga3Sampler::with_seed`], or
+/// [`Nsga3Sampler::builder`] for full configuration.
 pub struct Nsga3Sampler {
     state: Mutex<Nsga3State>,
 }

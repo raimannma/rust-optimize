@@ -1,7 +1,41 @@
 //! HTML report generation for optimization visualization.
 //!
-//! Generates self-contained HTML files with embedded Plotly.js charts
-//! for offline visualization of optimization results.
+//! Generate self-contained HTML files with embedded
+//! [Plotly.js](https://plotly.com/javascript/) charts for offline
+//! visualization of optimization results. No feature flag is required —
+//! this module is always available.
+//!
+//! # Charts included
+//!
+//! | Chart | Description |
+//! |---|---|
+//! | **Optimization history** | Objective value vs trial number with best-so-far line |
+//! | **Slice plots** | Objective value vs each parameter (1D scatter per param) |
+//! | **Parallel coordinates** | Multi-parameter relationship view (color = objective) |
+//! | **Parameter importance** | Horizontal bar chart of Spearman-based importance |
+//! | **Trial timeline** | Duration/index of each trial, color-coded by state |
+//! | **Intermediate values** | Per-trial learning curves (if pruning data available) |
+//!
+//! # Usage
+//!
+//! Call [`Study::export_html()`](crate::Study::export_html) or
+//! [`generate_html_report()`] directly:
+//!
+//! ```no_run
+//! use optimizer::prelude::*;
+//!
+//! let study: Study<f64> = Study::new(Direction::Minimize);
+//! # let x = FloatParam::new(0.0, 1.0);
+//! # study.optimize(10, |trial| {
+//! #     let v = x.suggest(trial)?;
+//! #     Ok::<_, optimizer::Error>(v * v)
+//! # }).unwrap();
+//! study.export_html("report.html").unwrap();
+//! ```
+//!
+//! The output is a single HTML file that can be opened in any browser.
+//! An internet connection is needed on first load to fetch `Plotly.js`
+//! from a CDN.
 
 use core::fmt::Write as _;
 use std::collections::BTreeMap;
@@ -15,17 +49,19 @@ use crate::types::{Direction, TrialState};
 
 /// Generate an HTML report with interactive Plotly.js charts.
 ///
-/// Creates a self-contained HTML file at `path` containing:
-/// - **Optimization history**: Objective value vs trial number with best-so-far line
-/// - **Slice plots**: Objective value vs each parameter (1D scatter)
-/// - **Parallel coordinates**: Multi-parameter relationship view
-/// - **Trial timeline**: Duration index of each trial (horizontal bar)
-/// - **Intermediate values**: Learning curves per trial (if pruning data available)
-/// - **Parameter importance**: Bar chart (if enough completed trials)
+/// Create a self-contained HTML file at `path` containing up to six
+/// interactive charts. Charts that require data not present in the study
+/// (e.g., intermediate values) are automatically omitted.
+///
+/// The report includes: optimization history, slice plots, parallel
+/// coordinates, parameter importance, trial timeline, and intermediate
+/// values (when available).
+///
+/// This is also available as [`Study::export_html()`](crate::Study::export_html).
 ///
 /// # Errors
 ///
-/// Returns an I/O error if the file cannot be created or written.
+/// Return an I/O error if the file cannot be created or written.
 pub fn generate_html_report(
     study: &crate::Study<f64>,
     path: impl AsRef<Path>,

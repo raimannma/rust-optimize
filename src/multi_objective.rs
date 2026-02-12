@@ -1,9 +1,28 @@
 //! Multi-objective optimization via a dedicated study type.
 //!
-//! [`MultiObjectiveStudy`] manages trials that return multiple objective
-//! values. It supports arbitrary numbers of objectives with per-objective
-//! directions (minimize or maximize). Use [`pareto_front()`](MultiObjectiveStudy::pareto_front)
-//! to retrieve the Pareto-optimal solutions.
+//! [`MultiObjectiveStudy`] manages trials that return **multiple** objective
+//! values simultaneously. It supports arbitrary numbers of objectives with
+//! per-objective directions (minimize or maximize).
+//!
+//! # Key concepts
+//!
+//! In multi-objective optimization there is usually no single best solution.
+//! Instead, there is a **Pareto front** — the set of solutions where no
+//! objective can be improved without worsening another. Use
+//! [`pareto_front()`](MultiObjectiveStudy::pareto_front) to retrieve these
+//! non-dominated solutions after optimization.
+//!
+//! A solution **dominates** another if it is at least as good in all
+//! objectives and strictly better in at least one. Solutions that are not
+//! dominated by any other are called **Pareto-optimal**.
+//!
+//! # Samplers
+//!
+//! By default a random sampler is used. For smarter search, pass a
+//! [`MultiObjectiveSampler`] such as [`Nsga2Sampler`](crate::Nsga2Sampler),
+//! [`Nsga3Sampler`](crate::Nsga3Sampler), or
+//! [`MoeadSampler`](crate::MoeadSampler) via
+//! [`MultiObjectiveStudy::with_sampler`].
 //!
 //! # Examples
 //!
@@ -46,6 +65,11 @@ use crate::types::{Direction, TrialState};
 // ---------------------------------------------------------------------------
 
 /// A completed trial with multiple objective values.
+///
+/// Each trial stores its sampled parameter values, the vector of
+/// objective values (one per objective), and optional constraint values.
+/// Retrieve typed parameter values with [`get()`](Self::get) and check
+/// constraint feasibility with [`is_feasible()`](Self::is_feasible).
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MultiObjectiveTrial {
@@ -111,9 +135,14 @@ impl MultiObjectiveTrial {
 
 /// Trait for samplers aware of multi-objective history.
 ///
-/// Separate from [`Sampler`] because NSGA-II needs access to
-/// `&[MultiObjectiveTrial]` (with vector-valued objectives) and
-/// `&[Direction]` (one direction per objective).
+/// Separate from [`Sampler`] because multi-objective algorithms (e.g.,
+/// NSGA-II) need access to the full vector of objective values per trial
+/// (`&[MultiObjectiveTrial]`) and the per-objective directions
+/// (`&[Direction]`).
+///
+/// Implementations include [`Nsga2Sampler`](crate::Nsga2Sampler),
+/// [`Nsga3Sampler`](crate::Nsga3Sampler), and
+/// [`MoeadSampler`](crate::MoeadSampler).
 pub trait MultiObjectiveSampler: Send + Sync {
     /// Samples a parameter value from the given distribution.
     fn sample(
@@ -181,9 +210,12 @@ impl Sampler for MoSamplerBridge {
 
 /// A study for multi-objective optimization.
 ///
-/// Manages trials that return multiple objective values. Supports
+/// Manage trials that return multiple objective values. Supports
 /// arbitrary numbers of objectives with independent minimize/maximize
-/// directions.
+/// directions. After optimization, call [`pareto_front()`](Self::pareto_front)
+/// to retrieve the non-dominated solutions.
+///
+/// For single-objective optimization, use [`Study`](crate::Study) instead.
 ///
 /// # Examples
 ///
@@ -269,7 +301,11 @@ impl MultiObjectiveStudy {
         self.completed_trials.read().clone()
     }
 
-    /// Returns the Pareto-optimal trials (front 0).
+    /// Return the Pareto-optimal trials (the non-dominated front).
+    ///
+    /// Uses fast non-dominated sorting (Deb et al., 2002) from the
+    /// [`pareto`](crate::pareto) module. Returns an empty vec if no
+    /// trials have completed.
     #[must_use]
     pub fn pareto_front(&self) -> Vec<MultiObjectiveTrial> {
         let trials = self.completed_trials.read();

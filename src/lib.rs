@@ -9,194 +9,79 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::std_instead_of_core)]
 
-//! A black-box optimization library with multiple sampling strategies.
+//! Bayesian and population-based optimization library with an Optuna-like API
+//! for hyperparameter tuning and black-box optimization. It ships 12 samplers
+//! (from random search to CMA-ES and NSGA-III), 8 pruners, async/parallel
+//! evaluation, and optional journal-based persistence — all with zero required
+//! feature flags for the common case.
 //!
-//! This library provides an Optuna-like API for hyperparameter optimization
-//! with support for multiple sampling algorithms:
+//! # Getting Started
 //!
-//! - **Random Search** - Simple random sampling for baseline comparisons
-//! - **TPE (Tree-Parzen Estimator)** - Bayesian optimization for efficient search
-//! - **Grid Search** - Exhaustive search over a specified parameter grid
-//! - **Sobol (QMC)** - Quasi-random sampling for better space coverage (requires `sobol` feature)
-//! - **CMA-ES** - Covariance Matrix Adaptation Evolution Strategy for continuous optimization (requires `cma-es` feature)
-//! - **DE** - Differential Evolution for population-based global optimization
-//! - **GP** - Gaussian Process Bayesian optimization with Expected Improvement (requires `gp` feature)
-//! - **BOHB** - Bayesian Optimization + `HyperBand` for budget-aware TPE sampling
-//! - **NSGA-II** - Non-dominated Sorting Genetic Algorithm II for multi-objective optimization
-//! - **NSGA-III** - Reference-point-based NSGA for many-objective (3+) optimization
-//! - **MOEA/D** - Decomposition-based multi-objective with Tchebycheff, Weighted Sum, or PBI
-//! - **MOTPE** - Multi-Objective Tree-Parzen Estimator for Bayesian multi-objective optimization
-//!
-//! Additional features include:
-//!
-//! - Float, integer, and categorical parameter types
-//! - Log-scale and stepped parameter sampling
-//! - Synchronous and async optimization
-//! - Parallel trial evaluation with bounded concurrency
-//!
-//! # Quick Start
+//! Minimize a function in five lines — no feature flags needed:
 //!
 //! ```
 //! use optimizer::prelude::*;
 //!
-//! // Create a study with TPE sampler
-//! let sampler = TpeSampler::builder().seed(42).build().unwrap();
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-//!
-//! // Define parameter search space
+//! let study: Study<f64> = Study::new(Direction::Minimize);
 //! let x = FloatParam::new(-10.0, 10.0).name("x");
 //!
-//! // Optimize x^2 for 20 trials
 //! study
-//!     .optimize(20, |trial| {
-//!         let x_val = x.suggest(trial)?;
-//!         Ok::<_, Error>(x_val * x_val)
+//!     .optimize(50, |trial| {
+//!         let v = x.suggest(trial)?;
+//!         Ok::<_, Error>((v - 3.0).powi(2))
 //!     })
 //!     .unwrap();
 //!
-//! // Get the best result
 //! let best = study.best_trial().unwrap();
-//! println!("x = {}", best.get(&x).unwrap());
+//! println!("x = {:.4}, f(x) = {:.4}", best.get(&x).unwrap(), best.value);
 //! ```
 //!
-//! # Creating a Study
+//! # Core Concepts
 //!
-//! A [`Study`] manages optimization trials. Create one with an optimization direction:
+//! | Type | Role |
+//! |------|------|
+//! | [`Study`] | Drive an optimization loop: create trials, record results, track the best. |
+//! | [`Trial`] | A single evaluation of the objective function, carrying suggested parameter values. |
+//! | [`Parameter`] | Define the search space — [`FloatParam`], [`IntParam`], [`CategoricalParam`], [`BoolParam`], [`EnumParam`]. |
+//! | [`Sampler`](sampler::Sampler) | Strategy for choosing the next point to evaluate (TPE, CMA-ES, random, etc.). |
+//! | [`Direction`] | Whether the study minimizes or maximizes the objective value. |
 //!
-//! ```
-//! use optimizer::sampler::random::RandomSampler;
-//! use optimizer::sampler::tpe::TpeSampler;
-//! use optimizer::{Direction, Study};
+//! # Sampler Guide
 //!
-//! // Minimize with default random sampler
-//! let study: Study<f64> = Study::new(Direction::Minimize);
+//! ## Single-objective samplers
 //!
-//! // Maximize with TPE sampler
-//! let study: Study<f64> = Study::with_sampler(Direction::Maximize, TpeSampler::new());
+//! | Sampler | Algorithm | Best for | Feature flag |
+//! |---------|-----------|----------|--------------|
+//! | [`RandomSampler`] | Uniform random | Baselines, high-dimensional | — |
+//! | [`TpeSampler`] | Tree-Parzen Estimator | General-purpose Bayesian | — |
+//! | [`GridSearchSampler`] | Exhaustive grid | Small, discrete spaces | — |
+//! | [`SobolSampler`] | Sobol quasi-random sequence | Space-filling, low dimensions | `sobol` |
+//! | [`CmaEsSampler`] | CMA-ES | Continuous, moderate dimensions | `cma-es` |
+//! | [`GpSampler`] | Gaussian Process + EI | Expensive objectives, few trials | `gp` |
+//! | [`DifferentialEvolutionSampler`] | Differential Evolution | Non-convex, population-based | — |
+//! | [`BohbSampler`] | BOHB (TPE + `HyperBand`) | Budget-aware early stopping | — |
 //!
-//! // With seeded sampler for reproducibility
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
-//! ```
+//! ## Multi-objective samplers
 //!
-//! # Suggesting Parameters
-//!
-//! Within the objective function, use parameter types to suggest values:
-//!
-//! ```
-//! use optimizer::parameter::{BoolParam, CategoricalParam, FloatParam, IntParam, Parameter};
-//! use optimizer::{Direction, Study};
-//!
-//! let study: Study<f64> = Study::new(Direction::Minimize);
-//!
-//! // Define parameter search spaces
-//! let x_param = FloatParam::new(0.0, 1.0);
-//! let lr_param = FloatParam::new(1e-5, 1e-1).log_scale();
-//! let step_param = FloatParam::new(0.0, 1.0).step(0.1);
-//! let n_param = IntParam::new(1, 10);
-//! let batch_param = IntParam::new(16, 256).log_scale();
-//! let units_param = IntParam::new(32, 512).step(32);
-//! let flag_param = BoolParam::new();
-//! let optimizer_param = CategoricalParam::new(vec!["sgd", "adam", "rmsprop"]);
-//!
-//! study
-//!     .optimize(10, |trial| {
-//!         let x = x_param.suggest(trial)?;
-//!         let lr = lr_param.suggest(trial)?;
-//!         let step = step_param.suggest(trial)?;
-//!         let n = n_param.suggest(trial)?;
-//!         let batch = batch_param.suggest(trial)?;
-//!         let units = units_param.suggest(trial)?;
-//!         let flag = flag_param.suggest(trial)?;
-//!         let optimizer = optimizer_param.suggest(trial)?;
-//!
-//!         Ok::<_, optimizer::Error>(x * n as f64)
-//!     })
-//!     .unwrap();
-//! ```
-//!
-//! # Available Samplers
-//!
-//! ## Random Search
-//!
-//! The simplest sampling strategy, useful for baselines:
-//!
-//! ```
-//! use optimizer::sampler::random::RandomSampler;
-//! use optimizer::{Direction, Study};
-//!
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
-//! ```
-//!
-//! ## TPE (Tree-Parzen Estimator)
-//!
-//! Bayesian optimization that learns from previous trials:
-//!
-//! ```
-//! use optimizer::sampler::tpe::TpeSampler;
-//!
-//! let sampler = TpeSampler::builder()
-//!     .gamma(0.15)           // Quantile for good/bad split
-//!     .n_startup_trials(20)  // Random trials before TPE
-//!     .n_ei_candidates(32)   // Candidates to evaluate
-//!     .seed(42)              // Reproducibility
-//!     .build()
-//!     .unwrap();
-//! ```
-//!
-//! ## Grid Search
-//!
-//! Exhaustive search over a discretized parameter space:
-//!
-//! ```
-//! use optimizer::sampler::grid::GridSearchSampler;
-//! use optimizer::{Direction, Study};
-//!
-//! let sampler = GridSearchSampler::builder()
-//!     .n_points_per_param(10)  // Points per parameter dimension
-//!     .build();
-//!
-//! let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
-//! ```
-//!
-//! # Async and Parallel Optimization
-//!
-//! With the `async` feature enabled, you can run trials asynchronously:
-//!
-//! ```ignore
-//! use optimizer::{Study, Direction};
-//! use optimizer::parameter::{FloatParam, Parameter};
-//!
-//! let x_param = FloatParam::new(0.0, 1.0);
-//!
-//! // Sequential async
-//! study.optimize_async(10, |mut trial| {
-//!     let x_param = x_param.clone();
-//!     async move {
-//!         let x = x_param.suggest(&mut trial)?;
-//!         Ok((trial, x * x))
-//!     }
-//! }).await?;
-//!
-//! // Parallel with bounded concurrency
-//! study.optimize_parallel(10, 4, |mut trial| {
-//!     let x_param = x_param.clone();
-//!     async move {
-//!         let x = x_param.suggest(&mut trial)?;
-//!         Ok((trial, x * x))
-//!     }
-//! }).await?;
-//! ```
+//! | Sampler | Algorithm | Best for | Feature flag |
+//! |---------|-----------|----------|--------------|
+//! | [`Nsga2Sampler`] | NSGA-II | 2-3 objectives | — |
+//! | [`Nsga3Sampler`] | NSGA-III (reference-point) | 3+ objectives | — |
+//! | [`MoeadSampler`] | MOEA/D (decomposition) | Many objectives, structured fronts | — |
+//! | [`MotpeSampler`] | Multi-Objective TPE | Bayesian multi-objective | — |
 //!
 //! # Feature Flags
 //!
-//! - `async`: Enable async optimization methods (requires tokio)
-//! - `derive`: Enable `#[derive(Categorical)]` for enum parameters
-//! - `serde`: Enable `Serialize`/`Deserialize` on public types and `Study::save()`/`Study::load()`
-//! - `sobol`: Enable the Sobol quasi-random sampler for better space coverage
-//! - `cma-es`: Enable the CMA-ES sampler for continuous optimization
-//! - `gp`: Enable the Gaussian Process sampler for Bayesian optimization
-//! - `visualization`: Generate self-contained HTML reports with interactive Plotly.js charts
-//! - `tracing`: Emit structured log events via the [`tracing`](https://docs.rs/tracing) crate at key optimization points
+//! | Flag | What it enables | Default |
+//! |------|----------------|---------|
+//! | `async` | Async/parallel optimization via tokio ([`Study::optimize_async`], [`Study::optimize_parallel`]) | off |
+//! | `derive` | `#[derive(Categorical)]` for enum parameters | off |
+//! | `serde` | `Serialize`/`Deserialize` on public types, [`Study::save`]/[`Study::load`] | off |
+//! | `journal` | [`JournalStorage`] — JSONL persistence with file locking (enables `serde`) | off |
+//! | `sobol` | [`SobolSampler`] — quasi-random low-discrepancy sequences | off |
+//! | `cma-es` | [`CmaEsSampler`] — Covariance Matrix Adaptation Evolution Strategy | off |
+//! | `gp` | [`GpSampler`] — Gaussian Process surrogate with Expected Improvement | off |
+//! | `tracing` | Structured log events via [`tracing`](https://docs.rs/tracing) at key optimization points | off |
 
 /// Emit a `tracing::info!` event when the `tracing` feature is enabled.
 /// No-op otherwise.

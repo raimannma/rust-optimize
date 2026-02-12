@@ -1,3 +1,33 @@
+//! Threshold pruner — prune trials whose values fall outside fixed bounds.
+//!
+//! Unlike statistical pruners that compare against other trials, the
+//! threshold pruner uses absolute bounds. Any trial whose latest
+//! intermediate value exceeds the upper bound or falls below the lower
+//! bound is pruned immediately.
+//!
+//! # When to use
+//!
+//! - When you know hard limits for valid intermediate values (e.g., loss should
+//!   never exceed 100.0)
+//! - To catch diverging or NaN-producing trials early
+//! - Often combined with other pruners via [`PatientPruner`](super::PatientPruner)
+//!
+//! # Configuration
+//!
+//! | Option | Default | Description |
+//! |--------|---------|-------------|
+//! | `upper` | `None` | Prune if value exceeds this bound |
+//! | `lower` | `None` | Prune if value falls below this bound |
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::pruner::ThresholdPruner;
+//!
+//! // Prune if loss exceeds 100.0 or accuracy drops below 0.0
+//! let pruner = ThresholdPruner::new().upper(100.0).lower(0.0);
+//! ```
+
 use super::Pruner;
 use crate::sampler::CompletedTrial;
 

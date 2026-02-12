@@ -1,8 +1,19 @@
-//! Central parameter trait and built-in parameter types.
+//! Parameter trait and five built-in parameter types.
 //!
-//! The [`Parameter`] trait provides a unified way to define parameter types
-//! and suggest values from a [`Trial`]. Built-in implementations
-//! cover floats, integers, categoricals, booleans, and enum types.
+//! The [`Parameter`] trait provides a unified way to define search-space
+//! dimensions and sample values from a [`Trial`]. Five implementations
+//! cover the most common hyperparameter types:
+//!
+//! | Type | Sampled value | Typical use |
+//! |------|---------------|-------------|
+//! | [`FloatParam`] | `f64` | Learning rate, dropout probability |
+//! | [`IntParam`] | `i64` | Layer count, batch size |
+//! | [`CategoricalParam`] | `T: Clone` | Optimizer name, activation function |
+//! | [`BoolParam`] | `bool` | Feature toggle |
+//! | [`EnumParam`] | `T: Categorical` | Typed enum variant selection |
+//!
+//! All five types support `.name()` for a human-readable label and
+//! `.suggest(&mut trial)` as a shorthand for `trial.suggest_param(&param)`.
 //!
 //! # Example
 //!
@@ -14,10 +25,17 @@
 //!
 //! let lr = FloatParam::new(1e-5, 1e-1)
 //!     .log_scale()
+//!     .name("learning_rate")
 //!     .suggest(&mut trial)
 //!     .unwrap();
-//! let layers = IntParam::new(1, 10).suggest(&mut trial).unwrap();
-//! let dropout = BoolParam::new().suggest(&mut trial).unwrap();
+//! let layers = IntParam::new(1, 10)
+//!     .name("n_layers")
+//!     .suggest(&mut trial)
+//!     .unwrap();
+//! let dropout = BoolParam::new()
+//!     .name("use_dropout")
+//!     .suggest(&mut trial)
+//!     .unwrap();
 //! ```
 
 use core::fmt::Debug;
@@ -42,7 +60,7 @@ static NEXT_PARAM_ID: AtomicU64 = AtomicU64::new(0);
 pub struct ParamId(u64);
 
 impl ParamId {
-    /// Creates a new unique `ParamId`.
+    /// Create a new unique `ParamId`.
     pub fn new() -> Self {
         Self(NEXT_PARAM_ID.fetch_add(1, Ordering::Relaxed))
     }
@@ -60,52 +78,67 @@ impl core::fmt::Display for ParamId {
     }
 }
 
-/// A trait for defining parameter types that can be suggested by a [`Trial`].
+/// Define a parameter type that can be suggested by a [`Trial`].
 ///
 /// Implementors specify the distribution to sample from and how to convert
-/// the raw [`ParamValue`] back into a typed value.
+/// the raw [`ParamValue`] back into a typed value. See the five built-in
+/// implementations: [`FloatParam`], [`IntParam`], [`CategoricalParam`],
+/// [`BoolParam`], and [`EnumParam`].
 pub trait Parameter: Debug {
     /// The typed value returned after sampling.
     type Value;
 
-    /// Returns the unique identifier for this parameter.
+    /// Return the unique identifier for this parameter.
     fn id(&self) -> ParamId;
 
-    /// Returns the distribution that this parameter samples from.
+    /// Return the distribution that this parameter samples from.
     fn distribution(&self) -> Distribution;
 
-    /// Converts a raw [`ParamValue`] into the typed value.
+    /// Convert a raw [`ParamValue`] into the typed value.
     ///
     /// # Errors
     ///
-    /// Returns an error if the `ParamValue` variant doesn't match what this parameter expects.
+    /// Return an error if the `ParamValue` variant does not match what this parameter expects.
     fn cast_param_value(&self, param_value: &ParamValue) -> Result<Self::Value>;
 
-    /// Validates the parameter configuration.
+    /// Validate the parameter configuration.
     ///
     /// Called before sampling. The default implementation accepts all configurations.
     ///
     /// # Errors
     ///
-    /// Returns an error if the parameter configuration is invalid.
+    /// Return an error if the parameter configuration is invalid.
     fn validate(&self) -> Result<()> {
         Ok(())
     }
 
-    /// Returns a human-readable label for this parameter.
+    /// Return a human-readable label for this parameter.
     ///
-    /// Defaults to the `Debug` output of the parameter.
+    /// Defaults to the `Debug` output of the parameter. Override with
+    /// the `.name()` builder method on concrete types.
     fn label(&self) -> String {
         format!("{self:?}")
     }
 
-    /// Suggests a value for this parameter from the given trial.
+    /// Suggest a value for this parameter from the given trial.
     ///
     /// This is a convenience method that delegates to [`Trial::suggest_param`].
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use optimizer::Trial;
+    /// use optimizer::parameter::{FloatParam, Parameter};
+    ///
+    /// let mut trial = Trial::new(0);
+    /// let param = FloatParam::new(-5.0, 5.0).name("x");
+    /// let value: f64 = param.suggest(&mut trial).unwrap();
+    /// assert!((-5.0..=5.0).contains(&value));
+    /// ```
+    ///
     /// # Errors
     ///
-    /// Returns an error if validation fails, the parameter conflicts with
+    /// Return an error if validation fails, the parameter conflicts with
     /// a previously suggested parameter of the same id, or sampling fails.
     fn suggest(&self, trial: &mut Trial) -> Result<Self::Value>
     where
@@ -117,7 +150,7 @@ pub trait Parameter: Debug {
 
 /// A floating-point parameter with optional log-scale and step size.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use optimizer::Trial;
@@ -128,13 +161,14 @@ pub trait Parameter: Debug {
 /// // Simple range
 /// let x = FloatParam::new(0.0, 1.0).suggest(&mut trial).unwrap();
 ///
-/// // Log-scale
+/// // Log-scale with a human-readable name
 /// let lr = FloatParam::new(1e-5, 1e-1)
 ///     .log_scale()
+///     .name("learning_rate")
 ///     .suggest(&mut trial)
 ///     .unwrap();
 ///
-/// // Stepped
+/// // Stepped (values will be multiples of 0.25)
 /// let step = FloatParam::new(0.0, 1.0)
 ///     .step(0.25)
 ///     .suggest(&mut trial)
@@ -151,7 +185,7 @@ pub struct FloatParam {
 }
 
 impl FloatParam {
-    /// Creates a new float parameter with the given bounds.
+    /// Create a new float parameter sampling uniformly from `[low, high]`.
     #[must_use]
     pub fn new(low: f64, high: f64) -> Self {
         Self {
@@ -164,21 +198,21 @@ impl FloatParam {
         }
     }
 
-    /// Enables log-scale sampling.
+    /// Enable log-scale sampling (bounds must be positive).
     #[must_use]
     pub fn log_scale(mut self) -> Self {
         self.log_scale = true;
         self
     }
 
-    /// Sets a step size for discretized sampling.
+    /// Set a step size for discretized sampling.
     #[must_use]
     pub fn step(mut self, step: f64) -> Self {
         self.step = Some(step);
         self
     }
 
-    /// Sets a human-readable name for this parameter.
+    /// Set a human-readable name for this parameter.
     ///
     /// When set, this name is used as the parameter's label instead of
     /// the default `Debug` output.
@@ -245,7 +279,7 @@ impl Parameter for FloatParam {
 
 /// An integer parameter with optional log-scale and step size.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use optimizer::Trial;
@@ -254,15 +288,19 @@ impl Parameter for FloatParam {
 /// let mut trial = Trial::new(0);
 ///
 /// // Simple range
-/// let n = IntParam::new(1, 10).suggest(&mut trial).unwrap();
+/// let n = IntParam::new(1, 10)
+///     .name("n_layers")
+///     .suggest(&mut trial)
+///     .unwrap();
 ///
 /// // Log-scale
 /// let batch = IntParam::new(1, 1024)
 ///     .log_scale()
+///     .name("batch_size")
 ///     .suggest(&mut trial)
 ///     .unwrap();
 ///
-/// // Stepped
+/// // Stepped (multiples of 32)
 /// let units = IntParam::new(32, 512).step(32).suggest(&mut trial).unwrap();
 /// ```
 #[derive(Clone, Debug)]
@@ -276,7 +314,7 @@ pub struct IntParam {
 }
 
 impl IntParam {
-    /// Creates a new integer parameter with the given bounds.
+    /// Create a new integer parameter sampling uniformly from `[low, high]`.
     #[must_use]
     pub fn new(low: i64, high: i64) -> Self {
         Self {
@@ -289,21 +327,21 @@ impl IntParam {
         }
     }
 
-    /// Enables log-scale sampling.
+    /// Enable log-scale sampling (bounds must be ≥ 1).
     #[must_use]
     pub fn log_scale(mut self) -> Self {
         self.log_scale = true;
         self
     }
 
-    /// Sets a step size for discretized sampling.
+    /// Set a step size for discretized sampling.
     #[must_use]
     pub fn step(mut self, step: i64) -> Self {
         self.step = Some(step);
         self
     }
 
-    /// Sets a human-readable name for this parameter.
+    /// Set a human-readable name for this parameter.
     ///
     /// When set, this name is used as the parameter's label instead of
     /// the default `Debug` output.
@@ -370,7 +408,10 @@ impl Parameter for IntParam {
 
 /// A categorical parameter that selects from a list of choices.
 ///
-/// # Example
+/// The generic type `T` is the element type of the choices vector.
+/// The sampler picks an index and the corresponding element is returned.
+///
+/// # Examples
 ///
 /// ```
 /// use optimizer::Trial;
@@ -378,6 +419,7 @@ impl Parameter for IntParam {
 ///
 /// let mut trial = Trial::new(0);
 /// let opt = CategoricalParam::new(vec!["sgd", "adam", "rmsprop"])
+///     .name("optimizer")
 ///     .suggest(&mut trial)
 ///     .unwrap();
 /// ```
@@ -389,7 +431,7 @@ pub struct CategoricalParam<T: Clone> {
 }
 
 impl<T: Clone> CategoricalParam<T> {
-    /// Creates a new categorical parameter with the given choices.
+    /// Create a new categorical parameter with the given choices.
     #[must_use]
     pub fn new(choices: Vec<T>) -> Self {
         Self {
@@ -399,7 +441,7 @@ impl<T: Clone> CategoricalParam<T> {
         }
     }
 
-    /// Sets a human-readable name for this parameter.
+    /// Set a human-readable name for this parameter.
     ///
     /// When set, this name is used as the parameter's label instead of
     /// the default `Debug` output.
@@ -444,16 +486,19 @@ impl<T: Clone + Debug> Parameter for CategoricalParam<T> {
     }
 }
 
-/// A boolean parameter (equivalent to a categorical with `[false, true]`).
+/// A boolean parameter (equivalent to a two-choice categorical: `false` / `true`).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use optimizer::Trial;
 /// use optimizer::parameter::{BoolParam, Parameter};
 ///
 /// let mut trial = Trial::new(0);
-/// let dropout = BoolParam::new().suggest(&mut trial).unwrap();
+/// let use_dropout = BoolParam::new()
+///     .name("use_dropout")
+///     .suggest(&mut trial)
+///     .unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolParam {
@@ -462,7 +507,7 @@ pub struct BoolParam {
 }
 
 impl BoolParam {
-    /// Creates a new boolean parameter.
+    /// Create a new boolean parameter.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -471,7 +516,7 @@ impl BoolParam {
         }
     }
 
-    /// Sets a human-readable name for this parameter.
+    /// Set a human-readable name for this parameter.
     ///
     /// When set, this name is used as the parameter's label instead of
     /// the default `Debug` output.
@@ -513,10 +558,10 @@ impl Parameter for BoolParam {
     }
 }
 
-/// A trait for enum types that can be used as categorical parameters.
+/// Map an enum type to sequential indices for use as a categorical parameter.
 ///
-/// This trait maps enum variants to sequential indices and back. It can be
-/// derived automatically for fieldless enums using `#[derive(Categorical)]`
+/// This trait converts enum variants to sequential indices and back. It can
+/// be derived automatically for fieldless enums using `#[derive(Categorical)]`
 /// when the `derive` feature is enabled.
 ///
 /// # Example
@@ -558,20 +603,24 @@ pub trait Categorical: Sized + Clone {
     /// The number of variants in the enum.
     const N_CHOICES: usize;
 
-    /// Creates an instance from a variant index.
+    /// Create an instance from a variant index.
     ///
     /// # Panics
     ///
     /// Panics if `index >= N_CHOICES`.
     fn from_index(index: usize) -> Self;
 
-    /// Returns the index of this variant.
+    /// Return the index of this variant.
     fn to_index(&self) -> usize;
 }
 
 /// A parameter that selects from the variants of an enum implementing [`Categorical`].
 ///
-/// # Example
+/// Prefer this over [`CategoricalParam`] when the choices map to a Rust enum,
+/// because the returned value is already the correct variant — no string
+/// matching required.
+///
+/// # Examples
 ///
 /// ```
 /// use optimizer::Trial;
@@ -604,7 +653,10 @@ pub trait Categorical: Sized + Clone {
 /// }
 ///
 /// let mut trial = Trial::new(0);
-/// let opt = EnumParam::<Optimizer>::new().suggest(&mut trial).unwrap();
+/// let opt = EnumParam::<Optimizer>::new()
+///     .name("optimizer")
+///     .suggest(&mut trial)
+///     .unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct EnumParam<T: Categorical> {
@@ -614,7 +666,7 @@ pub struct EnumParam<T: Categorical> {
 }
 
 impl<T: Categorical> EnumParam<T> {
-    /// Creates a new enum parameter.
+    /// Create a new enum parameter over all variants of `T`.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -624,7 +676,7 @@ impl<T: Categorical> EnumParam<T> {
         }
     }
 
-    /// Sets a human-readable name for this parameter.
+    /// Set a human-readable name for this parameter.
     ///
     /// When set, this name is used as the parameter's label instead of
     /// the default `Debug` output.

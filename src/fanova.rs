@@ -1,26 +1,83 @@
 //! fANOVA (functional ANOVA) parameter importance via random forest.
 //!
-//! Decomposes the variance of the objective function into contributions
-//! from individual parameters (main effects) and parameter interactions.
+//! fANOVA decomposes the variance of the objective function into
+//! contributions from individual parameters (**main effects**) and
+//! parameter pairs (**interaction effects**). This helps answer the
+//! question: *"Which parameters matter most, and do any parameters
+//! interact?"*
 //!
-//! The algorithm:
-//! 1. Fits a random forest to `(parameters) -> objective_value`
-//! 2. Applies functional ANOVA decomposition to the forest
-//! 3. Computes main effects (single-parameter importance)
-//! 4. Computes interaction effects (pairwise parameter importance)
+//! # Algorithm
+//!
+//! 1. Fit a random forest to the mapping `(parameters) → objective`
+//! 2. Apply functional ANOVA decomposition to the trained forest
+//! 3. Compute main effects: the variance explained by each parameter alone
+//! 4. Compute interaction effects: the additional variance explained by
+//!    pairs of parameters beyond their individual contributions
+//! 5. Normalize so all importances sum to 1.0
+//!
+//! # When to use
+//!
+//! - **After optimization**: call [`Study::fanova()`](crate::Study::fanova)
+//!   or [`Study::fanova_with_config()`](crate::Study::fanova_with_config)
+//!   to identify which parameters had the most impact
+//! - **Interaction detection**: unlike Spearman correlation
+//!   ([`Study::param_importance()`](crate::Study::param_importance)),
+//!   fANOVA can detect non-linear relationships and parameter interactions
+//! - **Hyperparameter tuning**: focus tuning effort on high-importance
+//!   parameters and fix low-importance ones to reasonable defaults
+//!
+//! # Reference
+//!
+//! Hutter, F., Hoos, H. & Leyton-Brown, K. (2014). "An Efficient
+//! Approach for Assessing Hyperparameter Importance." ICML 2014.
+//!
+//! # Example
+//!
+//! ```
+//! use optimizer::prelude::*;
+//!
+//! let study: Study<f64> = Study::new(Direction::Minimize);
+//! let x = FloatParam::new(0.0, 10.0).name("x");
+//! let y = FloatParam::new(0.0, 10.0).name("y");
+//!
+//! study
+//!     .optimize(50, |trial| {
+//!         let xv = x.suggest(trial)?;
+//!         let yv = y.suggest(trial)?;
+//!         // x matters much more than y
+//!         Ok::<_, optimizer::Error>(3.0 * xv + 0.1 * yv)
+//!     })
+//!     .unwrap();
+//!
+//! let result = study.fanova().unwrap();
+//! // Main effects sorted by descending importance
+//! assert_eq!(result.main_effects[0].0, "x");
+//! ```
 
 /// Result of fANOVA analysis.
+///
+/// All importance values are fractions of total variance and sum to 1.0
+/// across main effects and interactions combined.
 #[derive(Debug, Clone)]
 pub struct FanovaResult {
     /// Per-parameter importance (fraction of total variance explained).
-    /// Sorted by descending importance.
+    ///
+    /// Sorted by descending importance. Each entry is
+    /// `(parameter_name, importance)` where importance is in `[0.0, 1.0]`.
     pub main_effects: Vec<(String, f64)>,
     /// Pairwise interaction importance (fraction of total variance explained).
-    /// Sorted by descending importance.
+    ///
+    /// Sorted by descending importance. Each entry is
+    /// `((param_a, param_b), importance)`. Only pairs with non-negligible
+    /// interaction (> 1e-10) are included.
     pub interactions: Vec<((String, String), f64)>,
 }
 
 /// Configuration for fANOVA analysis.
+///
+/// Use [`Default::default()`] for reasonable settings, or customize
+/// the random forest parameters for specific needs. Pass to
+/// [`Study::fanova_with_config()`](crate::Study::fanova_with_config).
 #[derive(Debug, Clone)]
 pub struct FanovaConfig {
     /// Number of trees in the random forest (default: 64).
