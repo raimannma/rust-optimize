@@ -30,9 +30,11 @@
 use parking_lot::Mutex;
 
 use crate::distribution::Distribution;
+use crate::multi_objective::{MultiObjectiveSampler, MultiObjectiveTrial};
 use crate::param::ParamValue;
 use crate::rng_util;
 use crate::sampler::{CompletedTrial, Sampler};
+use crate::types::Direction;
 
 /// Uniform independent random sampler.
 ///
@@ -76,6 +78,27 @@ impl RandomSampler {
         Self {
             rng: Mutex::new(fastrand::Rng::with_seed(seed)),
         }
+    }
+}
+
+/// Default multi-objective sampler that delegates to [`RandomSampler`].
+pub(crate) struct RandomMultiObjectiveSampler(RandomSampler);
+
+impl RandomMultiObjectiveSampler {
+    pub(crate) fn new() -> Self {
+        Self(RandomSampler::new())
+    }
+}
+
+impl MultiObjectiveSampler for RandomMultiObjectiveSampler {
+    fn sample(
+        &self,
+        distribution: &Distribution,
+        trial_id: u64,
+        _history: &[MultiObjectiveTrial],
+        _directions: &[Direction],
+    ) -> ParamValue {
+        self.0.sample(distribution, trial_id, &[])
     }
 }
 

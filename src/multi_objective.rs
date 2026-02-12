@@ -55,7 +55,7 @@ use crate::distribution::Distribution;
 use crate::param::ParamValue;
 use crate::parameter::{ParamId, Parameter};
 use crate::pruner::NopPruner;
-use crate::sampler::random::RandomSampler;
+use crate::sampler::random::RandomMultiObjectiveSampler;
 use crate::sampler::{CompletedTrial, Sampler};
 use crate::trial::{AttrValue, Trial};
 use crate::types::{Direction, TrialState};
@@ -152,31 +152,6 @@ pub trait MultiObjectiveSampler: Send + Sync {
         history: &[MultiObjectiveTrial],
         directions: &[Direction],
     ) -> ParamValue;
-}
-
-// ---------------------------------------------------------------------------
-// RandomMultiObjectiveSampler
-// ---------------------------------------------------------------------------
-
-/// Default MO sampler that delegates to [`RandomSampler`].
-pub(crate) struct RandomMultiObjectiveSampler(RandomSampler);
-
-impl RandomMultiObjectiveSampler {
-    pub(crate) fn new() -> Self {
-        Self(RandomSampler::new())
-    }
-}
-
-impl MultiObjectiveSampler for RandomMultiObjectiveSampler {
-    fn sample(
-        &self,
-        distribution: &Distribution,
-        trial_id: u64,
-        _history: &[MultiObjectiveTrial],
-        _directions: &[Direction],
-    ) -> ParamValue {
-        self.0.sample(distribution, trial_id, &[])
-    }
 }
 
 // ---------------------------------------------------------------------------
