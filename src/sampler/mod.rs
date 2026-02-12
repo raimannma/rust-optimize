@@ -175,6 +175,74 @@ impl<V> CompletedTrial<V> {
     pub fn user_attrs(&self) -> &HashMap<String, AttrValue> {
         &self.user_attrs
     }
+
+    /// Validates that all floating-point fields are finite (not NaN or
+    /// Infinity).
+    ///
+    /// Checks distribution bounds, parameter values, constraints, and
+    /// intermediate values.  Returns a description of the first invalid
+    /// field found, or `Ok(())` if everything is valid.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `String` describing the first non-finite value found.
+    pub fn validate(&self) -> core::result::Result<(), String> {
+        for (id, dist) in &self.distributions {
+            if let Distribution::Float(fd) = dist {
+                if !fd.low.is_finite() {
+                    return Err(format!(
+                        "trial {}: float distribution for param {id} has non-finite low bound ({})",
+                        self.id, fd.low
+                    ));
+                }
+                if !fd.high.is_finite() {
+                    return Err(format!(
+                        "trial {}: float distribution for param {id} has non-finite high bound ({})",
+                        self.id, fd.high
+                    ));
+                }
+                if let Some(step) = fd.step
+                    && !step.is_finite()
+                {
+                    return Err(format!(
+                        "trial {}: float distribution for param {id} has non-finite step ({step})",
+                        self.id
+                    ));
+                }
+            }
+        }
+
+        for (id, pv) in &self.params {
+            if let ParamValue::Float(v) = pv
+                && !v.is_finite()
+            {
+                return Err(format!(
+                    "trial {}: param {id} has non-finite float value ({v})",
+                    self.id
+                ));
+            }
+        }
+
+        for (i, &c) in self.constraints.iter().enumerate() {
+            if !c.is_finite() {
+                return Err(format!(
+                    "trial {}: constraint[{i}] is non-finite ({c})",
+                    self.id
+                ));
+            }
+        }
+
+        for &(step, v) in &self.intermediate_values {
+            if !v.is_finite() {
+                return Err(format!(
+                    "trial {}: intermediate value at step {step} is non-finite ({v})",
+                    self.id
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// A pending (running) trial with its parameters and distributions, but no objective value yet.

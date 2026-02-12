@@ -244,6 +244,7 @@ fn load_trials_from_file<V: DeserializeOwned>(
         }
         let trial: CompletedTrial<V> =
             serde_json::from_str(line).map_err(|e| crate::Error::Storage(e.to_string()))?;
+        trial.validate().map_err(crate::Error::Storage)?;
         trials.push(trial);
     }
 

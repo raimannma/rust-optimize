@@ -107,14 +107,14 @@ macro_rules! trace_debug {
     ($($arg:tt)*) => {};
 }
 
-mod distribution;
+pub mod distribution;
 mod error;
 mod fanova;
 mod importance;
 mod kde;
 pub mod multi_objective;
 pub mod objective;
-mod param;
+pub mod param;
 pub mod parameter;
 pub mod pareto;
 pub mod pruner;

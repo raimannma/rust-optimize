@@ -214,3 +214,106 @@ fn pruned_trials_are_stored() {
 
     std::fs::remove_file(&path).ok();
 }
+
+#[test]
+fn rejects_non_finite_values_in_journal() {
+    // serde_json rejects 1e999 ("number out of range"), so non-finite
+    // floats cannot sneak in through standard JSON.  Verify the overall
+    // loading path catches the error regardless of which layer rejects it.
+    let path = temp_path();
+    std::fs::write(
+        &path,
+        r#"{"id":0,"params":{},"distributions":{"0":{"Float":{"low":0.0,"high":1e999,"log_scale":false,"step":null}}},"param_labels":{},"value":1.0,"intermediate_values":[],"state":"Complete","user_attrs":{},"constraints":[]}"#,
+    )
+    .unwrap();
+
+    assert!(JournalStorage::<f64>::open(&path).is_err());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn validate_rejects_non_finite_distribution_bound() {
+    use optimizer::distribution::{Distribution, FloatDistribution};
+
+    let pid = FloatParam::new(0.0, 1.0).id();
+    let mut trial = sample_trial(0, 1.0);
+    trial.distributions.insert(
+        pid,
+        Distribution::Float(FloatDistribution {
+            low: 0.0,
+            high: f64::INFINITY,
+            log_scale: false,
+            step: None,
+        }),
+    );
+    let err = trial.validate().unwrap_err();
+    assert!(err.contains("non-finite"), "unexpected: {err}");
+}
+
+#[test]
+fn validate_rejects_nan_constraint() {
+    let mut trial = sample_trial(0, 1.0);
+    trial.constraints.push(f64::NAN);
+    let err = trial.validate().unwrap_err();
+    assert!(err.contains("non-finite"), "unexpected: {err}");
+}
+
+#[test]
+fn validate_rejects_non_finite_param_value() {
+    use optimizer::param::ParamValue;
+
+    let pid = FloatParam::new(0.0, 1.0).id();
+    let mut trial = sample_trial(0, 1.0);
+    trial
+        .params
+        .insert(pid, ParamValue::Float(f64::NEG_INFINITY));
+    let err = trial.validate().unwrap_err();
+    assert!(err.contains("non-finite"), "unexpected: {err}");
+}
+
+#[test]
+fn validate_rejects_nan_intermediate_value() {
+    let mut trial = sample_trial(0, 1.0);
+    trial.intermediate_values.push((0, f64::NAN));
+    let err = trial.validate().unwrap_err();
+    assert!(err.contains("non-finite"), "unexpected: {err}");
+}
+
+#[test]
+fn validate_accepts_valid_trial() {
+    use optimizer::distribution::{Distribution, FloatDistribution};
+    use optimizer::param::ParamValue;
+
+    let pid = FloatParam::new(0.0, 1.0).id();
+    let mut trial = sample_trial(0, 1.0);
+    trial.params.insert(pid, ParamValue::Float(0.5));
+    trial.distributions.insert(
+        pid,
+        Distribution::Float(FloatDistribution {
+            low: 0.0,
+            high: 1.0,
+            log_scale: false,
+            step: None,
+        }),
+    );
+    trial.constraints.push(-1.0);
+    trial.intermediate_values.push((0, 0.5));
+    assert!(trial.validate().is_ok());
+}
+
+#[test]
+fn accepts_valid_journal_with_distributions() {
+    let path = temp_path();
+    std::fs::write(
+        &path,
+        r#"{"id":0,"params":{"0":{"Float":0.5}},"distributions":{"0":{"Float":{"low":0.0,"high":1.0,"log_scale":false,"step":null}}},"param_labels":{},"value":0.25,"intermediate_values":[],"state":"Complete","user_attrs":{},"constraints":[-1.0]}"#,
+    )
+    .unwrap();
+
+    let storage = JournalStorage::<f64>::open(&path).unwrap();
+    let loaded = storage.trials_arc().read().clone();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].value, 0.25);
+
+    std::fs::remove_file(&path).ok();
+}
