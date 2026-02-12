@@ -263,8 +263,20 @@ impl MotpeSampler {
         let (internal_low, internal_high, good_internal, bad_internal) = if log_scale {
             let i_low = low.ln();
             let i_high = high.ln();
-            let g: Vec<f64> = good_values.iter().map(|&v| v.ln()).collect();
-            let b: Vec<f64> = bad_values.iter().map(|&v| v.ln()).collect();
+            let g = {
+                let mut v = good_values;
+                for x in &mut v {
+                    *x = x.ln();
+                }
+                v
+            };
+            let b = {
+                let mut v = bad_values;
+                for x in &mut v {
+                    *x = x.ln();
+                }
+                v
+            };
             (i_low, i_high, g, b)
         } else {
             (low, high, good_values, bad_values)
@@ -339,12 +351,12 @@ impl MotpeSampler {
         high: i64,
         log_scale: bool,
         step: Option<i64>,
-        good_values: &[i64],
-        bad_values: &[i64],
+        good_values: Vec<i64>,
+        bad_values: Vec<i64>,
         rng: &mut fastrand::Rng,
     ) -> i64 {
-        let good_floats: Vec<f64> = good_values.iter().map(|&v| v as f64).collect();
-        let bad_floats: Vec<f64> = bad_values.iter().map(|&v| v as f64).collect();
+        let good_floats: Vec<f64> = good_values.into_iter().map(|v| v as f64).collect();
+        let bad_floats: Vec<f64> = bad_values.into_iter().map(|v| v as f64).collect();
 
         let float_value = self.sample_tpe_float(
             low as f64,
@@ -375,9 +387,30 @@ impl MotpeSampler {
         bad_indices: &[usize],
         rng: &mut fastrand::Rng,
     ) -> usize {
-        let mut good_counts = vec![0usize; n_choices];
-        let mut bad_counts = vec![0usize; n_choices];
+        // Stack-allocate for the common case (<=32 choices), heap for rare large cases
+        let mut good_buf = [0usize; 32];
+        let mut bad_buf = [0usize; 32];
+        let mut weight_buf = [0.0f64; 32];
 
+        let mut good_vec;
+        let mut bad_vec;
+        let mut weight_vec;
+
+        let (good_counts, bad_counts, weights): (&mut [usize], &mut [usize], &mut [f64]) =
+            if n_choices <= 32 {
+                (
+                    &mut good_buf[..n_choices],
+                    &mut bad_buf[..n_choices],
+                    &mut weight_buf[..n_choices],
+                )
+            } else {
+                good_vec = vec![0usize; n_choices];
+                bad_vec = vec![0usize; n_choices];
+                weight_vec = vec![0.0f64; n_choices];
+                (&mut good_vec, &mut bad_vec, &mut weight_vec)
+            };
+
+        // Count occurrences in good and bad groups
         for &idx in good_indices {
             if idx < n_choices {
                 good_counts[idx] += 1;
@@ -393,7 +426,7 @@ impl MotpeSampler {
         let good_total = good_indices.len() as f64 + n_choices as f64;
         let bad_total = bad_indices.len() as f64 + n_choices as f64;
 
-        let mut weights = vec![0.0f64; n_choices];
+        // Calculate l(x)/g(x) ratio for each category
         for i in 0..n_choices {
             let l_prob = (good_counts[i] as f64 + 1.0) / good_total;
             let g_prob = (bad_counts[i] as f64 + 1.0) / bad_total;
@@ -521,8 +554,8 @@ impl MultiObjectiveSampler for MotpeSampler {
                     d.high,
                     d.log_scale,
                     d.step,
-                    &good_values,
-                    &bad_values,
+                    good_values,
+                    bad_values,
                     &mut rng,
                 );
                 ParamValue::Int(value)
