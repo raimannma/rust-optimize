@@ -161,13 +161,20 @@ fn test_best_trial_with_nan_values() {
     let study: Study<f64> = Study::new(Direction::Minimize);
     let x_param = FloatParam::new(0.0, 10.0);
 
-    study
-        .optimize(5, |trial: &mut optimizer::Trial| {
-            let x = x_param.suggest(trial)?;
-            Ok::<_, Error>(x)
-        })
-        .unwrap();
+    // Mix NaN and valid objective values
+    let mut trial = study.create_trial();
+    let _ = x_param.suggest(&mut trial).unwrap();
+    study.complete_trial(trial, f64::NAN);
 
+    let mut trial = study.create_trial();
+    let _ = x_param.suggest(&mut trial).unwrap();
+    study.complete_trial(trial, 5.0);
+
+    let mut trial = study.create_trial();
+    let _ = x_param.suggest(&mut trial).unwrap();
+    study.complete_trial(trial, f64::NAN);
+
+    // best_trial succeeds even when some trials have NaN values
     let best = study.best_trial();
     assert!(best.is_ok());
 }
