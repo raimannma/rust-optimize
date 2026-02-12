@@ -58,7 +58,7 @@
 //! assert!(!front.is_empty());
 //! ```
 
-use parking_lot::Mutex;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::distribution::Distribution;
 use crate::kde::KernelDensityEstimator;
@@ -119,8 +119,10 @@ pub struct MotpeSampler {
     n_ei_candidates: usize,
     /// Optional fixed bandwidth for KDE. If None, uses Scott's rule.
     kde_bandwidth: Option<f64>,
-    /// Thread-safe RNG for sampling.
-    rng: Mutex<fastrand::Rng>,
+    /// Base seed for deterministic per-call RNG derivation (no mutex needed).
+    seed: u64,
+    /// Monotonic counter to disambiguate calls with identical (`trial_id`, distribution).
+    call_seq: AtomicU64,
 }
 
 impl MotpeSampler {
@@ -136,7 +138,8 @@ impl MotpeSampler {
             n_startup_trials: 11,
             n_ei_candidates: 24,
             kde_bandwidth: None,
-            rng: Mutex::new(fastrand::Rng::new()),
+            seed: fastrand::u64(..),
+            call_seq: AtomicU64::new(0),
         }
     }
 
@@ -147,7 +150,8 @@ impl MotpeSampler {
             n_startup_trials: 11,
             n_ei_candidates: 24,
             kde_bandwidth: None,
-            rng: Mutex::new(fastrand::Rng::with_seed(seed)),
+            seed,
+            call_seq: AtomicU64::new(0),
         }
     }
 
@@ -423,11 +427,16 @@ impl MultiObjectiveSampler for MotpeSampler {
     fn sample(
         &self,
         distribution: &Distribution,
-        _trial_id: u64,
+        trial_id: u64,
         history: &[MultiObjectiveTrial],
         directions: &[Direction],
     ) -> ParamValue {
-        let mut rng = self.rng.lock();
+        let seq = self.call_seq.fetch_add(1, Ordering::Relaxed);
+        let mut rng = fastrand::Rng::with_seed(rng_util::mix_seed(
+            self.seed,
+            trial_id,
+            rng_util::distribution_fingerprint(distribution).wrapping_add(seq),
+        ));
 
         // Fall back to random sampling during startup phase
         let n_complete = history
@@ -628,16 +637,12 @@ impl MotpeSamplerBuilder {
     /// Builds the configured [`MotpeSampler`].
     #[must_use]
     pub fn build(self) -> MotpeSampler {
-        let rng = match self.seed {
-            Some(s) => fastrand::Rng::with_seed(s),
-            None => fastrand::Rng::new(),
-        };
-
         MotpeSampler {
             n_startup_trials: self.n_startup_trials,
             n_ei_candidates: self.n_ei_candidates,
             kde_bandwidth: self.kde_bandwidth,
-            rng: Mutex::new(rng),
+            seed: self.seed.unwrap_or_else(|| fastrand::u64(..)),
+            call_seq: AtomicU64::new(0),
         }
     }
 }
@@ -699,8 +704,8 @@ mod tests {
 
         // With no history, should use random sampling
         let history: Vec<MultiObjectiveTrial> = vec![];
-        for _ in 0..50 {
-            let value = sampler.sample(&dist, 0, &history, &directions);
+        for i in 0..50 {
+            let value = sampler.sample(&dist, i, &history, &directions);
             if let ParamValue::Float(v) = value {
                 assert!((0.0..=1.0).contains(&v));
             } else {

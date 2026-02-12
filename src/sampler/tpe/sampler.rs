@@ -56,9 +56,8 @@
 //! ```
 
 use core::fmt::Debug;
+use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
-use parking_lot::Mutex;
 
 use crate::distribution::Distribution;
 use crate::error::{Error, Result};
@@ -129,8 +128,10 @@ pub struct TpeSampler {
     n_ei_candidates: usize,
     /// Optional fixed bandwidth for KDE. If None, uses Scott's rule.
     kde_bandwidth: Option<f64>,
-    /// Thread-safe RNG for sampling.
-    rng: Mutex<fastrand::Rng>,
+    /// Base seed for deterministic per-call RNG derivation (no mutex needed).
+    seed: u64,
+    /// Monotonic counter to disambiguate calls with identical (`trial_id`, distribution).
+    call_seq: AtomicU64,
 }
 
 impl TpeSampler {
@@ -148,7 +149,8 @@ impl TpeSampler {
             n_startup_trials: 10,
             n_ei_candidates: 24,
             kde_bandwidth: None,
-            rng: Mutex::new(fastrand::Rng::new()),
+            seed: fastrand::u64(..),
+            call_seq: AtomicU64::new(0),
         }
     }
 
@@ -248,17 +250,13 @@ impl TpeSampler {
             return Err(Error::InvalidBandwidth(bw));
         }
 
-        let rng = match seed {
-            Some(s) => fastrand::Rng::with_seed(s),
-            None => fastrand::Rng::new(),
-        };
-
         Ok(Self {
             gamma_strategy: Arc::new(gamma_strategy),
             n_startup_trials,
             n_ei_candidates,
             kde_bandwidth,
-            rng: Mutex::new(rng),
+            seed: seed.unwrap_or_else(|| fastrand::u64(..)),
+            call_seq: AtomicU64::new(0),
         })
     }
 
@@ -849,17 +847,13 @@ impl TpeSamplerBuilder {
             return Err(Error::InvalidBandwidth(bw));
         }
 
-        let rng = match self.seed {
-            Some(s) => fastrand::Rng::with_seed(s),
-            None => fastrand::Rng::new(),
-        };
-
         Ok(TpeSampler {
             gamma_strategy,
             n_startup_trials: self.n_startup_trials,
             n_ei_candidates: self.n_ei_candidates,
             kde_bandwidth: self.kde_bandwidth,
-            rng: Mutex::new(rng),
+            seed: self.seed.unwrap_or_else(|| fastrand::u64(..)),
+            call_seq: AtomicU64::new(0),
         })
     }
 }
@@ -875,10 +869,15 @@ impl Sampler for TpeSampler {
     fn sample(
         &self,
         distribution: &Distribution,
-        _trial_id: u64,
+        trial_id: u64,
         history: &[CompletedTrial],
     ) -> ParamValue {
-        let mut rng = self.rng.lock();
+        let seq = self.call_seq.fetch_add(1, Ordering::Relaxed);
+        let mut rng = fastrand::Rng::with_seed(rng_util::mix_seed(
+            self.seed,
+            trial_id,
+            rng_util::distribution_fingerprint(distribution).wrapping_add(seq),
+        ));
 
         // Fall back to random sampling during startup phase
         if history.len() < self.n_startup_trials {
@@ -1077,8 +1076,8 @@ mod tests {
         // With fewer than n_startup_trials, should use random sampling
         let history: Vec<CompletedTrial> = vec![];
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &history);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &history);
             if let ParamValue::Float(v) = value {
                 assert!((0.0..=1.0).contains(&v));
             } else {

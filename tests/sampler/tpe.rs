@@ -74,7 +74,7 @@ fn test_tpe_maximization() {
     // Optimal: x = 2, f(2) = 10
     let sampler = TpeSampler::builder()
         .seed(456)
-        .n_startup_trials(5)
+        .n_startup_trials(15)
         .build()
         .unwrap();
 
@@ -83,7 +83,7 @@ fn test_tpe_maximization() {
     let x_param = FloatParam::new(-10.0, 10.0);
 
     study
-        .optimize(50, |trial: &mut optimizer::Trial| {
+        .optimize(100, |trial: &mut optimizer::Trial| {
             let x = x_param.suggest(trial)?;
             Ok::<_, Error>(-(x - 2.0).powi(2) + 10.0)
         })

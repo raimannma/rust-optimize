@@ -27,7 +27,7 @@
 //! let study: Study<f64> = Study::with_sampler(Direction::Minimize, RandomSampler::with_seed(42));
 //! ```
 
-use parking_lot::Mutex;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::distribution::Distribution;
 use crate::multi_objective::{MultiObjectiveSampler, MultiObjectiveTrial};
@@ -58,7 +58,9 @@ use crate::types::Direction;
 /// let sampler = RandomSampler::with_seed(42);
 /// ```
 pub struct RandomSampler {
-    rng: Mutex<fastrand::Rng>,
+    seed: u64,
+    /// Monotonic counter to disambiguate calls with identical (`trial_id`, distribution).
+    call_seq: AtomicU64,
 }
 
 impl RandomSampler {
@@ -66,7 +68,8 @@ impl RandomSampler {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            rng: Mutex::new(fastrand::Rng::new()),
+            seed: fastrand::u64(..),
+            call_seq: AtomicU64::new(0),
         }
     }
 
@@ -76,7 +79,8 @@ impl RandomSampler {
     #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         Self {
-            rng: Mutex::new(fastrand::Rng::with_seed(seed)),
+            seed,
+            call_seq: AtomicU64::new(0),
         }
     }
 }
@@ -113,10 +117,15 @@ impl Sampler for RandomSampler {
     fn sample(
         &self,
         distribution: &Distribution,
-        _trial_id: u64,
+        trial_id: u64,
         _history: &[CompletedTrial],
     ) -> ParamValue {
-        let mut rng = self.rng.lock();
+        let seq = self.call_seq.fetch_add(1, Ordering::Relaxed);
+        let mut rng = fastrand::Rng::with_seed(rng_util::mix_seed(
+            self.seed,
+            trial_id,
+            rng_util::distribution_fingerprint(distribution).wrapping_add(seq),
+        ));
 
         match distribution {
             Distribution::Float(d) => {
@@ -181,8 +190,8 @@ mod tests {
             step: None,
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Float(v) = value {
                 assert!((0.0..=1.0).contains(&v));
             } else {
@@ -201,8 +210,8 @@ mod tests {
             step: None,
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Float(v) = value {
                 assert!((1e-5..=1.0).contains(&v));
             } else {
@@ -221,8 +230,8 @@ mod tests {
             step: Some(0.25),
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Float(v) = value {
                 assert!((0.0..=1.0).contains(&v));
                 // Check it's on the step grid
@@ -245,8 +254,8 @@ mod tests {
             step: None,
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Int(v) = value {
                 assert!((0..=10).contains(&v));
             } else {
@@ -265,8 +274,8 @@ mod tests {
             step: None,
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Int(v) = value {
                 assert!((1..=1000).contains(&v));
             } else {
@@ -285,8 +294,8 @@ mod tests {
             step: Some(2),
         });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Int(v) = value {
                 assert!((0..=10).contains(&v));
                 // Check it's on the step grid: 0, 2, 4, 6, 8, 10
@@ -302,8 +311,8 @@ mod tests {
         let sampler = RandomSampler::with_seed(42);
         let dist = Distribution::Categorical(CategoricalDistribution { n_choices: 5 });
 
-        for _ in 0..100 {
-            let value = sampler.sample(&dist, 0, &[]);
+        for i in 0..100 {
+            let value = sampler.sample(&dist, i, &[]);
             if let ParamValue::Categorical(idx) = value {
                 assert!(idx < 5);
             } else {
@@ -323,9 +332,9 @@ mod tests {
             step: None,
         });
 
-        for _ in 0..10 {
-            let v1 = sampler1.sample(&dist, 0, &[]);
-            let v2 = sampler2.sample(&dist, 0, &[]);
+        for i in 0..10 {
+            let v1 = sampler1.sample(&dist, i, &[]);
+            let v2 = sampler2.sample(&dist, i, &[]);
             assert_eq!(v1, v2);
         }
     }
