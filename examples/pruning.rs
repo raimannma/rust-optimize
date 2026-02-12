@@ -61,7 +61,7 @@ fn main() -> optimizer::Result<()> {
     );
     println!("Best trial #{}: loss = {:.6}", best.id, best.value);
     println!("  learning_rate = {:.6}", best.get(&lr).unwrap());
-println!("  momentum      = {:.4}", best.get(&momentum).unwrap());
+    println!("  momentum      = {:.4}", best.get(&momentum).unwrap());
 
     Ok(())
 }
