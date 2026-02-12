@@ -11,6 +11,7 @@
 /// management. The [`TrialPruned`](Error::TrialPruned) variant has special
 /// significance — it signals early stopping and is typically raised via
 /// the [`TrialPruned`](super::TrialPruned) convenience type.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The lower bound exceeds the upper bound in a
