@@ -67,6 +67,20 @@
 //!
 //! For pure in-memory usage without disk I/O, use
 //! [`MemoryStorage`](super::MemoryStorage) instead (the default).
+//!
+//! # Security considerations
+//!
+//! Both [`JournalStorage::open`] and [`refresh`](super::Storage::refresh)
+//! read the entire JSONL file into memory.  A very large file will
+//! consume memory proportional to its size, which could lead to
+//! out-of-memory conditions.
+//!
+//! If your application accepts externally-provided file paths, consider:
+//!
+//! - Checking the file size before calling `open`.
+//! - Validating or sanitizing untrusted JSONL content.
+//! - Imposing an upper bound on the number of trials or file size you
+//!   are willing to load.
 
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -108,6 +122,11 @@ use crate::sampler::CompletedTrial;
 /// let storage = JournalStorage::<f64>::new("trials.jsonl");
 /// let mut study = Study::builder().minimize().storage(storage).build();
 /// ```
+///
+/// # Security considerations
+///
+/// File contents are loaded into memory in full; see the
+/// [module-level docs](self) for details and mitigations.
 pub struct JournalStorage<V = f64> {
     memory: MemoryStorage<V>,
     path: PathBuf,
