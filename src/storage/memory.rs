@@ -13,8 +13,7 @@
 //!   (no disk I/O).
 //!
 //! For persistent storage that survives process restarts, see
-//! [`JournalStorage`](super::JournalStorage) (requires the `journal`
-//! feature).
+//! `JournalStorage` (requires the `journal` feature).
 //!
 //! # Example
 //!
