@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -83,18 +83,23 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> JournalStorage<V> {
 
         let mut file = OpenOptions::new()
             .create(true)
-            .append(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
             .open(&self.path)
             .map_err(|e| crate::Error::Storage(e.to_string()))?;
 
         file.lock_exclusive()
             .map_err(|e| crate::Error::Storage(e.to_string()))?;
 
+        file.seek(SeekFrom::End(0))
+            .map_err(|e| crate::Error::Storage(e.to_string()))?;
+
         let line =
             serde_json::to_string(trial).map_err(|e| crate::Error::Storage(e.to_string()))?;
 
         writeln!(file, "{line}").map_err(|e| crate::Error::Storage(e.to_string()))?;
-        file.flush()
+        file.sync_data()
             .map_err(|e| crate::Error::Storage(e.to_string()))?;
 
         file.unlock()
