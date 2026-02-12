@@ -288,15 +288,6 @@ impl TpeSampler {
             return (vec![], vec![]);
         }
 
-        // Sort trials by value (ascending for minimization)
-        let mut sorted_indices: Vec<usize> = (0..history.len()).collect();
-        sorted_indices.sort_by(|&a, &b| {
-            history[a]
-                .value
-                .partial_cmp(&history[b].value)
-                .unwrap_or(core::cmp::Ordering::Equal)
-        });
-
         // Compute gamma using the strategy and clamp to valid range
         let gamma = self
             .gamma_strategy
@@ -309,14 +300,20 @@ impl TpeSampler {
             .max(1)
             .min(history.len() - 1);
 
-        let good: Vec<_> = sorted_indices[..n_good]
-            .iter()
-            .map(|&i| &history[i])
-            .collect();
-        let bad: Vec<_> = sorted_indices[n_good..]
-            .iter()
-            .map(|&i| &history[i])
-            .collect();
+        // Use quickselect (O(n)) to partition indices instead of full sort (O(n log n)).
+        // We only need to know which trials are in the top gamma-quantile, not their order.
+        let mut indices: Vec<usize> = (0..history.len()).collect();
+        if n_good > 0 {
+            indices.select_nth_unstable_by(n_good - 1, |&a, &b| {
+                history[a]
+                    .value
+                    .partial_cmp(&history[b].value)
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+        }
+
+        let good: Vec<_> = indices[..n_good].iter().map(|&i| &history[i]).collect();
+        let bad: Vec<_> = indices[n_good..].iter().map(|&i| &history[i]).collect();
 
         (good, bad)
     }
