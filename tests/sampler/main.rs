@@ -12,4 +12,6 @@ mod differential_evolution;
 mod gp;
 mod multivariate_tpe;
 mod random;
+#[cfg(feature = "sobol")]
+mod sobol;
 mod tpe;
