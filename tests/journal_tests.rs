@@ -373,3 +373,168 @@ fn refresh_picks_up_external_writes() {
 
     std::fs::remove_file(&path).ok();
 }
+
+// ── Corrupted / malicious journal file tests ────────────────────────
+
+fn valid_trial_line_with_id(id: u64) -> String {
+    format!(
+        r#"{{"id":{id},"params":{{}},"distributions":{{}},"param_labels":{{}},"value":1.0,"intermediate_values":[],"state":"Complete","user_attrs":{{}},"constraints":[]}}"#
+    )
+}
+
+#[test]
+fn empty_file_loads_as_empty_storage() {
+    let path = temp_path();
+    std::fs::write(&path, "").unwrap();
+
+    let storage = JournalStorage::<f64>::open(&path).unwrap();
+    assert_eq!(storage.trials_arc().read().len(), 0);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn whitespace_only_lines_are_skipped() {
+    let path = temp_path();
+    std::fs::write(&path, "  \n\t\n\n").unwrap();
+
+    let storage = JournalStorage::<f64>::open(&path).unwrap();
+    assert_eq!(storage.trials_arc().read().len(), 0);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn truncated_json_line_returns_error() {
+    let path = temp_path();
+    std::fs::write(&path, r#"{"id":0,"params":{"#).unwrap();
+
+    assert!(JournalStorage::<f64>::open(&path).is_err());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn invalid_json_syntax_returns_error() {
+    let path = temp_path();
+    std::fs::write(&path, "not valid json\n").unwrap();
+
+    assert!(JournalStorage::<f64>::open(&path).is_err());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn missing_required_field_returns_error() {
+    let path = temp_path();
+    // Missing params, distributions, param_labels, etc.
+    std::fs::write(&path, r#"{"id":0,"value":1.0}"#).unwrap();
+
+    assert!(JournalStorage::<f64>::open(&path).is_err());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn extra_fields_are_ignored() {
+    let path = temp_path();
+    let line = r#"{"id":0,"params":{},"distributions":{},"param_labels":{},"value":0.5,"intermediate_values":[],"state":"Complete","user_attrs":{},"constraints":[],"foo":"bar","extra_number":42}"#;
+    std::fs::write(&path, format!("{line}\n")).unwrap();
+
+    let storage = JournalStorage::<f64>::open(&path).unwrap();
+    let loaded = storage.trials_arc().read().clone();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].id, 0);
+    assert_eq!(loaded[0].value, 0.5);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn out_of_bounds_categorical_index_loads() {
+    let path = temp_path();
+    // Categorical param with index 999, but distribution only has 3 choices.
+    // validate() does not check categorical bounds, so this should load.
+    let line = r#"{"id":0,"params":{"0":{"Categorical":999}},"distributions":{"0":{"Categorical":{"n_choices":3}}},"param_labels":{},"value":1.0,"intermediate_values":[],"state":"Complete","user_attrs":{},"constraints":[]}"#;
+    std::fs::write(&path, format!("{line}\n")).unwrap();
+
+    let storage = JournalStorage::<f64>::open(&path).unwrap();
+    let loaded = storage.trials_arc().read().clone();
+    assert_eq!(loaded.len(), 1);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn valid_lines_before_corruption_are_not_loaded() {
+    let path = temp_path();
+    let content = format!(
+        "{}\n{}\n{}\n",
+        valid_trial_line_with_id(0),
+        valid_trial_line_with_id(1),
+        "CORRUPTED LINE"
+    );
+    std::fs::write(&path, content).unwrap();
+
+    // load_trials_from_file is all-or-nothing: the corrupted third line
+    // makes the entire open() fail.
+    assert!(JournalStorage::<f64>::open(&path).is_err());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn refresh_rejects_corrupted_external_append() {
+    let path = temp_path();
+    let storage = JournalStorage::new(&path);
+
+    // Push 2 valid trials through the storage API.
+    storage.push(sample_trial(0, 1.0));
+    storage.push(sample_trial(1, 2.0));
+    assert_eq!(storage.trials_arc().read().len(), 2);
+
+    // Simulate an external process appending corrupted JSON.
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "CORRUPTED LINE").unwrap();
+        file.sync_all().unwrap();
+    }
+
+    // refresh() should reject the corrupted data and return false.
+    assert!(!storage.refresh());
+    // Memory still has only the original 2 trials.
+    assert_eq!(storage.trials_arc().read().len(), 2);
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn refresh_rejects_truncated_external_append() {
+    let path = temp_path();
+    let storage = JournalStorage::new(&path);
+
+    // Push 2 valid trials through the storage API.
+    storage.push(sample_trial(0, 1.0));
+    storage.push(sample_trial(1, 2.0));
+    assert_eq!(storage.trials_arc().read().len(), 2);
+
+    // Simulate an external process appending truncated JSON.
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, r#"{{"id":2,"params":{{"#).unwrap();
+        file.sync_all().unwrap();
+    }
+
+    // refresh() should reject the truncated data and return false.
+    assert!(!storage.refresh());
+    // Memory still has only the original 2 trials.
+    assert_eq!(storage.trials_arc().read().len(), 2);
+
+    std::fs::remove_file(&path).ok();
+}
