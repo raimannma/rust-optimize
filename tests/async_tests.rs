@@ -197,27 +197,39 @@ async fn test_optimize_parallel_single_concurrency() {
 
 #[tokio::test]
 async fn test_parallel_executes_concurrently() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     let sampler = RandomSampler::with_seed(42);
     let study: Study<f64> = Study::with_sampler(Direction::Minimize, sampler);
 
     let x_param = FloatParam::new(0.0, 10.0);
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
 
-    let start = tokio::time::Instant::now();
+    let active_c = Arc::clone(&active);
+    let max_active_c = Arc::clone(&max_active);
+
     study
         .optimize_parallel(4, 4, move |trial: &mut optimizer::Trial| {
             let x = x_param.suggest(trial)?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            let current = active_c.fetch_add(1, Ordering::SeqCst) + 1;
+            max_active_c.fetch_max(current, Ordering::SeqCst);
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            active_c.fetch_sub(1, Ordering::SeqCst);
             Ok::<_, Error>(x)
         })
         .await
         .expect("parallel optimization should succeed");
 
-    let elapsed = start.elapsed();
     assert_eq!(study.n_trials(), 4);
-    // Sequential would take ~400ms; parallel with concurrency=4 should be ~100ms
+    let max = max_active.load(Ordering::SeqCst);
+    // With 4 trials and concurrency=4, all should run concurrently
     assert!(
-        elapsed < std::time::Duration::from_millis(350),
-        "expected parallel execution under 350ms, took {elapsed:?}"
+        max >= 2,
+        "expected at least 2 concurrent workers, but max was {max}"
     );
 }
 

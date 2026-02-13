@@ -197,7 +197,7 @@ impl MultivariateTpeSampler {
             return result;
         }
 
-        param_order.sort_by_key(|id| format!("{id}"));
+        param_order.sort();
 
         // Extract observations, validate, and fit KDEs
         let good_obs = self.extract_observations(&good, &param_order);
@@ -215,7 +215,20 @@ impl MultivariateTpeSampler {
             return result;
         };
 
-        let selected = self.select_candidate_with_rng(&good_kde, &bad_kde, rng);
+        // Compute parameter bounds for each dimension so candidates are clamped
+        let bounds: Vec<(f64, f64)> = param_order
+            .iter()
+            .filter_map(|id| {
+                intersection.get(id).and_then(|dist| match dist {
+                    Distribution::Float(d) => Some((d.low, d.high)),
+                    #[allow(clippy::cast_precision_loss)]
+                    Distribution::Int(d) => Some((d.low as f64, d.high as f64)),
+                    Distribution::Categorical(_) => None,
+                })
+            })
+            .collect();
+
+        let selected = self.select_candidate_with_rng(&good_kde, &bad_kde, &bounds, rng);
 
         // Map selected values to parameter ids
         for (idx, param_id) in param_order.iter().enumerate() {
@@ -273,23 +286,38 @@ impl MultivariateTpeSampler {
         }
     }
 
+    /// Clamps each dimension of a candidate to the corresponding parameter bounds.
+    fn clamp_candidate(candidate: &mut [f64], bounds: &[(f64, f64)]) {
+        for (val, &(lo, hi)) in candidate.iter_mut().zip(bounds.iter()) {
+            *val = val.clamp(lo, hi);
+        }
+    }
+
     /// Selects the best candidate from a set of samples using the joint acquisition function.
     ///
     /// This method implements the core TPE selection criterion: it generates candidates
     /// from the "good" KDE (l(x)) and selects the one that maximizes the ratio l(x)/g(x),
     /// which is equivalent to maximizing `log(l(x)) - log(g(x))`.
+    ///
+    /// Candidates are clamped to parameter bounds before evaluation so the acquisition
+    /// function scores the values that will actually be used.
     #[must_use]
     #[cfg(test)]
     pub(crate) fn select_candidate(
         &self,
         good_kde: &crate::kde::MultivariateKDE,
         bad_kde: &crate::kde::MultivariateKDE,
+        bounds: &[(f64, f64)],
     ) -> Vec<f64> {
         let mut rng = self.rng.lock();
 
-        // Generate candidates from the good distribution
+        // Generate candidates from the good distribution, clamped to bounds
         let candidates: Vec<Vec<f64>> = (0..self.n_ei_candidates)
-            .map(|_| good_kde.sample(&mut rng))
+            .map(|_| {
+                let mut c = good_kde.sample(&mut rng);
+                Self::clamp_candidate(&mut c, bounds);
+                c
+            })
             .collect();
 
         // Compute log(l(x)) - log(g(x)) for each candidate
@@ -321,15 +349,21 @@ impl MultivariateTpeSampler {
     /// Selects the best candidate using an external RNG.
     ///
     /// This variant accepts an external RNG, used when the caller already holds the lock.
+    /// Candidates are clamped to parameter bounds before evaluation.
     pub(crate) fn select_candidate_with_rng(
         &self,
         good_kde: &crate::kde::MultivariateKDE,
         bad_kde: &crate::kde::MultivariateKDE,
+        bounds: &[(f64, f64)],
         rng: &mut fastrand::Rng,
     ) -> Vec<f64> {
-        // Generate candidates from the good distribution
+        // Generate candidates from the good distribution, clamped to bounds
         let candidates: Vec<Vec<f64>> = (0..self.n_ei_candidates)
-            .map(|_| good_kde.sample(rng))
+            .map(|_| {
+                let mut c = good_kde.sample(rng);
+                Self::clamp_candidate(&mut c, bounds);
+                c
+            })
             .collect();
 
         // Compute log(l(x)) - log(g(x)) for each candidate
@@ -367,8 +401,8 @@ impl MultivariateTpeSampler {
         result: &mut HashMap<ParamId, ParamValue>,
         rng: &mut fastrand::Rng,
     ) {
-        // Identify parameters not in result (and not in intersection)
-        let missing_params: Vec<(&ParamId, &Distribution)> = search_space
+        // Identify parameters not in result, sorted for deterministic RNG consumption
+        let mut missing_params: Vec<(&ParamId, &Distribution)> = search_space
             .iter()
             .filter(|(id, _)| !result.contains_key(id))
             .collect();
@@ -376,6 +410,8 @@ impl MultivariateTpeSampler {
         if missing_params.is_empty() {
             return;
         }
+
+        missing_params.sort_by_key(|(id, _)| *id);
 
         // Split trials for independent sampling
         let (good_trials, bad_trials) = self.split_trials(&history.iter().collect::<Vec<_>>());
@@ -390,6 +426,7 @@ impl MultivariateTpeSampler {
     /// Samples all parameters using independent TPE sampling.
     ///
     /// This is used as a complete fallback when no intersection search space exists.
+    /// Parameters are sorted by `ParamId` for deterministic RNG consumption order.
     #[cfg(test)]
     pub(crate) fn sample_all_independent(
         &self,
@@ -402,7 +439,9 @@ impl MultivariateTpeSampler {
         let mut rng = self.rng.lock();
         let mut result = HashMap::new();
 
-        for (param_id, dist) in search_space {
+        let mut sorted: Vec<_> = search_space.iter().collect();
+        sorted.sort_by_key(|(id, _)| *id);
+        for (param_id, dist) in sorted {
             let value =
                 self.sample_independent_tpe(*param_id, dist, &good_trials, &bad_trials, &mut rng);
             result.insert(*param_id, value);
@@ -414,6 +453,7 @@ impl MultivariateTpeSampler {
     /// Samples all parameters using independent TPE sampling with an external RNG.
     ///
     /// This variant accepts an external RNG, used when the caller already holds the lock.
+    /// Parameters are sorted by `ParamId` for deterministic RNG consumption order.
     pub(crate) fn sample_all_independent_with_rng(
         &self,
         search_space: &HashMap<ParamId, Distribution>,
@@ -425,7 +465,9 @@ impl MultivariateTpeSampler {
 
         let mut result = HashMap::new();
 
-        for (param_id, dist) in search_space {
+        let mut sorted: Vec<_> = search_space.iter().collect();
+        sorted.sort_by_key(|(id, _)| *id);
+        for (param_id, dist) in sorted {
             let value =
                 self.sample_independent_tpe(*param_id, dist, &good_trials, &bad_trials, rng);
             result.insert(*param_id, value);

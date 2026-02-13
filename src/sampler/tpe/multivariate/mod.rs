@@ -322,14 +322,18 @@ impl MultivariateTpeSampler {
     /// Samples all parameters uniformly at random.
     ///
     /// This is a fallback method used when multivariate TPE cannot be applied.
+    /// Parameters are sorted by `ParamId` to ensure deterministic RNG consumption
+    /// order when using a seeded sampler.
     #[allow(clippy::unused_self)]
     fn sample_all_uniform(
         &self,
         search_space: &HashMap<ParamId, Distribution>,
         rng: &mut fastrand::Rng,
     ) -> HashMap<ParamId, ParamValue> {
-        search_space
-            .iter()
+        let mut sorted: Vec<_> = search_space.iter().collect();
+        sorted.sort_by_key(|(id, _)| *id);
+        sorted
+            .into_iter()
             .map(|(id, dist)| (*id, crate::sampler::common::sample_random(rng, dist)))
             .collect()
     }
@@ -2781,8 +2785,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(0.0, 1.0), (0.0, 1.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
 
             // The selected candidate should have 2 dimensions
             assert_eq!(selected.len(), 2);
@@ -2822,8 +2827,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(-1.0, 2.0), (-1.0, 2.0), (-1.0, 2.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
             assert_eq!(selected.len(), 3);
         }
 
@@ -2841,8 +2847,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(0.0, 10.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
             assert_eq!(selected.len(), 1);
 
             // Selected value should be closer to the good region
@@ -2873,14 +2880,15 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples.clone()).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples.clone()).unwrap();
+            let bounds = &[(0.0, 10.0), (0.0, 10.0)];
 
-            let selected1 = sampler1.select_candidate(&good_kde, &bad_kde);
+            let selected1 = sampler1.select_candidate(&good_kde, &bad_kde, bounds);
 
             // Need to recreate KDEs for second sampler since we consumed them
             let good_kde2 = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde2 = MultivariateKDE::new(bad_samples).unwrap();
 
-            let selected2 = sampler2.select_candidate(&good_kde2, &bad_kde2);
+            let selected2 = sampler2.select_candidate(&good_kde2, &bad_kde2, bounds);
 
             // With same seed, should get same result
             assert!(
@@ -2911,8 +2919,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(-10.0, 10.0), (-10.0, 10.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
             assert_eq!(selected.len(), 2);
         }
 
@@ -2942,8 +2951,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(-5.0, 15.0), (-5.0, 15.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
 
             // With more candidates, should definitely find a point in the good region
             assert!(
@@ -2981,8 +2991,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(-5.0, 5.0), (-5.0, 5.0)];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
 
             // Should still return a valid point
             assert_eq!(selected.len(), 2);
@@ -3017,8 +3028,9 @@ mod tests {
 
             let good_kde = MultivariateKDE::new(good_samples).unwrap();
             let bad_kde = MultivariateKDE::new(bad_samples).unwrap();
+            let bounds = &[(-5.0, 15.0); 5];
 
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
 
             assert_eq!(selected.len(), 5);
 
@@ -3091,7 +3103,8 @@ mod tests {
             let bad_kde = MultivariateKDE::new(bad_obs).unwrap();
 
             // Select candidate
-            let selected = sampler.select_candidate(&good_kde, &bad_kde);
+            let bounds = &[(0.0, 10.0), (0.0, 10.0)];
+            let selected = sampler.select_candidate(&good_kde, &bad_kde, bounds);
 
             assert_eq!(selected.len(), 2);
 

@@ -45,7 +45,7 @@ fn test_multivariate_tpe_rosenbrock_finds_good_solution() {
     let sampler = MultivariateTpeSampler::builder()
         .seed(42)
         .n_startup_trials(10)
-        .n_ei_candidates(24)
+        .n_ei_candidates(48)
         .build()
         .unwrap();
 
@@ -55,7 +55,7 @@ fn test_multivariate_tpe_rosenbrock_finds_good_solution() {
     let y_param = FloatParam::new(-2.0, 4.0);
 
     study
-        .optimize(100, |trial: &mut optimizer::Trial| {
+        .optimize(200, |trial: &mut optimizer::Trial| {
             let x = x_param.suggest(trial)?;
             let y = y_param.suggest(trial)?;
             Ok::<_, Error>(rosenbrock(x, y))

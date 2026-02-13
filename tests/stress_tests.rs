@@ -3,6 +3,7 @@
 //! All tests are `#[ignore]`-gated so they don't run in normal CI.
 //! Run with: `cargo test --features async -- --ignored`
 
+#[cfg(feature = "async")]
 use std::collections::HashSet;
 
 use optimizer::parameter::{FloatParam, Parameter};
