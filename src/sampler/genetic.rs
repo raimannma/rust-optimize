@@ -295,10 +295,10 @@ pub(crate) fn crossover(
                     child2[i] = ParamValue::Int((c2.round() as i64).clamp(d.low, d.high));
                 }
             }
-            (ParamValue::Categorical(_), ParamValue::Categorical(_), _) => {
-                if rng_util::f64_range(rng, 0.0, 1.0) < 0.5 {
-                    core::mem::swap(&mut child1[i], &mut child2[i]);
-                }
+            (ParamValue::Categorical(_), ParamValue::Categorical(_), _)
+                if rng_util::f64_range(rng, 0.0, 1.0) < 0.5 =>
+            {
+                core::mem::swap(&mut child1[i], &mut child2[i]);
             }
             _ => {}
         }

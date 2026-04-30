@@ -642,6 +642,22 @@ impl Default for TpeSamplerBuilder {
     }
 }
 
+/// Deterministically pick a parameter value matching `target_dist` from a
+/// trial. When multiple parameters share the same distribution (e.g. two
+/// `FloatParam::new(-5.0, 5.0)` in the same study), the one with the
+/// smallest [`ParamId`] is chosen so behavior does not depend on
+/// `HashMap` iteration order.
+fn find_matching_value<'t>(
+    t: &'t CompletedTrial,
+    target_dist: &Distribution,
+) -> Option<&'t ParamValue> {
+    t.distributions
+        .iter()
+        .filter(|(_, dist)| *dist == target_dist)
+        .min_by_key(|(id, _)| *id)
+        .and_then(|(id, _)| t.params.get(id))
+}
+
 impl TpeSampler {
     fn sample_float(
         &self,
@@ -653,33 +669,17 @@ impl TpeSampler {
         let target_dist = Distribution::Float(d.clone());
         let good_values: Vec<f64> = good_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Float(f) => Some(*f),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Float(f) => Some(*f),
+                _ => None,
             })
             .collect();
 
         let bad_values: Vec<f64> = bad_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Float(f) => Some(*f),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Float(f) => Some(*f),
+                _ => None,
             })
             .collect();
 
@@ -708,33 +708,17 @@ impl TpeSampler {
         let target_dist = Distribution::Int(d.clone());
         let good_values: Vec<i64> = good_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Int(i) => Some(*i),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Int(i) => Some(*i),
+                _ => None,
             })
             .collect();
 
         let bad_values: Vec<i64> = bad_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Int(i) => Some(*i),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Int(i) => Some(*i),
+                _ => None,
             })
             .collect();
 
@@ -764,33 +748,17 @@ impl TpeSampler {
         let target_dist = Distribution::Categorical(d.clone());
         let good_indices: Vec<usize> = good_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Categorical(i) => Some(*i),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Categorical(i) => Some(*i),
+                _ => None,
             })
             .collect();
 
         let bad_indices: Vec<usize> = bad_trials
             .iter()
-            .filter_map(|t| {
-                t.distributions.iter().find_map(|(id, dist)| {
-                    if *dist == target_dist {
-                        t.params.get(id).and_then(|v| match v {
-                            ParamValue::Categorical(i) => Some(*i),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+            .filter_map(|t| match find_matching_value(t, &target_dist)? {
+                ParamValue::Categorical(i) => Some(*i),
+                _ => None,
             })
             .collect();
 

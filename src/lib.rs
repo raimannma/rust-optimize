@@ -7,7 +7,6 @@
 #![deny(clippy::complexity)]
 #![deny(clippy::perf)]
 #![deny(clippy::pedantic)]
-#![deny(clippy::std_instead_of_core)]
 
 //! Bayesian and population-based optimization library with an Optuna-like API
 //! for hyperparameter tuning and black-box optimization. It ships 12 samplers
